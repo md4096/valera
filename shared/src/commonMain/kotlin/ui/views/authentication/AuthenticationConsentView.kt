@@ -33,6 +33,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +79,11 @@ fun AuthenticationConsentView(
     vm: AuthenticationConsentViewModel,
     onError: (Throwable) -> Unit,
 ) {
+    LaunchedEffect(null) { vm.onError.collect { onError(it)} }
+
     vm.walletMain.keyMaterial.onUnauthenticated = vm.navigateUp
+
+    val requestPreviewData by vm.requestPreviewData.collectAsState(null)
 
     Scaffold(
         topBar = {
@@ -165,8 +171,9 @@ fun AuthenticationConsentView(
                         ),
                         modifier = paddingModifier,
                     )
-
-                    PresentationRequestPreview(vm.presentationRequest, onError = onError)
+                    requestPreviewData?.forEach { data ->
+                        PresentationRequestPreview(data)
+                    }
 
                     if (vm.transactionData != null) {
                         Spacer(modifier = Modifier.height(32.dp))

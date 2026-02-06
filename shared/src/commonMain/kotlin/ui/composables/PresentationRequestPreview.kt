@@ -1,10 +1,6 @@
 package ui.composables
 
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import at.asitplus.catchingUnwrapped
 import at.asitplus.jsonpath.core.NormalizedJsonPath
 import at.asitplus.jsonpath.core.NormalizedJsonPathSegment
@@ -18,97 +14,22 @@ import at.asitplus.wallet.lib.data.ConstantIndex
 import at.asitplus.wallet.lib.data.CredentialPresentationRequest
 import at.asitplus.wallet.lib.data.CredentialPresentationRequest.DCQLRequest
 import at.asitplus.wallet.lib.data.CredentialPresentationRequest.PresentationExchangeRequest
-import data.credentials.MdocClaimReference
-import org.jetbrains.compose.resources.stringResource
 import data.credentials.JsonClaimReference
 import data.credentials.JwtClaimDefinition
 import data.credentials.JwtClaimDefinitionTranslator
+import data.credentials.MdocClaimReference
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.getString
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun PresentationRequestPreview(
-    presentationRequest: CredentialPresentationRequest,
-    onError: (Throwable) -> Unit,
+    data: PresentationRequestPreviewData
 ) {
-    when (presentationRequest) {
-        is DCQLRequest -> DcqlRequestPreview(presentationRequest, onError)
-        is PresentationExchangeRequest -> PresentationExchangeRequestPreview(presentationRequest, onError,)
-    }
-}
-
-@Composable
-fun PresentationExchangeRequestPreview(
-    presentationRequest: PresentationExchangeRequest,
-    onError: (Throwable) -> Unit,
-) {
-    presentationRequest.presentationDefinition.inputDescriptors.forEach { inputDescriptor ->
-        catchingUnwrapped {
-            inputDescriptor.extractConsentData()
-        }.onSuccess { (representation, scheme, attributes) ->
-            RequestedCredentialPreview(
-                scheme = scheme,
-                representation = representation,
-                attributes = attributes.mapKeys { it.key }
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }.onFailure {
-            onError(it)
-        }
-    }
-}
-
-@Composable
-fun DcqlRequestPreview(
-    presentationRequest: DCQLRequest,
-    onError: (Throwable) -> Unit,
-) {
-    if (presentationRequest.dcqlQuery.requestedCredentialSetQueries.size != 1) {
-        return onError(UnsupportedOperationException(stringResource(Res.string.error_complex_dcql_query)))
-    }
-    val credentialSetQuery = presentationRequest.dcqlQuery.requestedCredentialSetQueries.first()
-
-    if (credentialSetQuery.options.size != 1) {
-        return onError(UnsupportedOperationException(stringResource(Res.string.error_complex_dcql_query)))
-    }
-    val requestedCredentialCombination = credentialSetQuery.options.first()
-
-    requestedCredentialCombination.forEach { credentialQueryIdentifier ->
-        val credentialQuery = presentationRequest.dcqlQuery.credentials.find {
-            it.id == credentialQueryIdentifier
-        }
-        if (credentialQuery == null) {
-            return onError(IllegalArgumentException(stringResource(Res.string.error_invalid_dcql_query)))
-        }
-
-        val (representation, scheme, attributePaths) = try {
-            credentialQuery.extractConsentData()
-        } catch (e: Throwable) {
-            return onError(e)
-        }
-
-        RequestedCredentialPreview(
-            scheme = scheme,
-            representation = representation,
-            attributes = attributePaths?.map {
-                when (it) {
-                    is MdocClaimReference -> NormalizedJsonPath() + it.namespace + it.claimName
-                    is JsonClaimReference -> it.normalizedJsonPath
-                    null -> null
-                }
-            }?.associateWith { false },
-        )
-    }
-}
-
-@Composable
-fun RequestedCredentialPreview(
-    scheme: ConstantIndex.CredentialScheme,
-    representation: ConstantIndex.CredentialRepresentation,
-    attributes: Map<NormalizedJsonPath?, Boolean>?,
-) {
+    val scheme = data.scheme
     val schemeName = scheme.uiLabel()
-    val format = representation.name
-    val localizations = attributes?.let { claimReferences ->
+    val format = data.representation.name
+    val localizations = data.attributes?.let { claimReferences ->
         val otherClaims = claimReferences.count {
             it.key == null
         }
@@ -119,7 +40,7 @@ fun RequestedCredentialPreview(
         }
         otherClaims to singleClaimReferences.mapKeys { (path, _) ->
             catchingUnwrapped {
-                (scheme.getLocalization(path) ?: representation.getMetadataLocalization(path))
+                (scheme.getLocalization(path) ?: getMetadataLocalization(path))
                     ?.let { stringResource(it) }
                     ?: path.toString()
             }.getOrElse { path.toString() }
@@ -130,11 +51,62 @@ fun RequestedCredentialPreview(
         attributes = localizations
     )
 }
-
-private fun ConstantIndex.CredentialRepresentation.getMetadataLocalization(path: NormalizedJsonPath): StringResource? {
+private fun getMetadataLocalization(path: NormalizedJsonPath): StringResource? {
     val firstSegment = path.segments.firstOrNull()?.let {
         it as? NormalizedJsonPathSegment.NameSegment
     } ?: return null
     val jwtClaimDefinition = JwtClaimDefinition.valueOfClaimNameOrNull(firstSegment.memberName) ?: return null
     return JwtClaimDefinitionTranslator().translate(jwtClaimDefinition)
+}
+
+data class PresentationRequestPreviewData(val scheme: ConstantIndex.CredentialScheme,
+                                          val representation: ConstantIndex.CredentialRepresentation,
+                                          val attributes: Map<NormalizedJsonPath?, Boolean>?)
+
+suspend fun CredentialPresentationRequest.toPreviewData(): List<PresentationRequestPreviewData>? = when (this) {
+    is DCQLRequest -> {
+        if (this.dcqlQuery.requestedCredentialSetQueries.size != 1) {
+            throw(UnsupportedOperationException(getString(Res.string.error_complex_dcql_query)))
+        }
+        val credentialSetQuery = this.dcqlQuery.requestedCredentialSetQueries.first()
+
+        if (credentialSetQuery.options.size != 1) {
+            throw(UnsupportedOperationException(getString(Res.string.error_complex_dcql_query)))
+        }
+        val requestedCredentialCombination = credentialSetQuery.options.first()
+
+        requestedCredentialCombination.map { credentialQueryIdentifier ->
+            val credentialQuery = this.dcqlQuery.credentials.find {
+                it.id == credentialQueryIdentifier
+            }
+            if (credentialQuery == null) {
+                throw (IllegalArgumentException(getString(Res.string.error_invalid_dcql_query)))
+            }
+
+            val (representation, scheme, attributePaths) = try {
+                credentialQuery.extractConsentData()
+            } catch (e: Throwable) {
+                throw e
+            }
+
+            PresentationRequestPreviewData(scheme, representation, attributePaths?.map {
+                when (it) {
+                    is MdocClaimReference -> NormalizedJsonPath() + it.namespace + it.claimName
+                    is JsonClaimReference -> it.normalizedJsonPath
+                    null -> null
+                }
+            }?.associateWith { false })
+        }
+    }
+    is PresentationExchangeRequest -> {
+        this.presentationDefinition.inputDescriptors.map { inputDescriptor ->
+            inputDescriptor.extractConsentData().let { (representation, scheme, attributes) ->
+                PresentationRequestPreviewData(
+                    scheme = scheme,
+                    representation = representation,
+                    attributes = attributes.mapKeys { it.key }
+                )
+            }
+        }
+    }
 }
