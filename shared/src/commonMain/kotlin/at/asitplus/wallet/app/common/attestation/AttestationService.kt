@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -35,6 +36,7 @@ class AttestationService(
     buildContext: BuildContext,
     httpService: HttpService,
 ) {
+    private val dispatcher = Dispatchers.IO.limitedParallelism(1, "Attestation Operations")
     private val scope = CoroutineScope(Dispatchers.IO)
     private val httpClient = httpService.buildHttpClient()
 
@@ -54,38 +56,47 @@ class AttestationService(
     val bufferedInstanceAttestation = MutableStateFlow<JwsCompactTyped<JsonWebToken>?>(null)
     val bufferedKeyAttestation = MutableStateFlow<JwsCompactTyped<KeyAttestationJwt>?>(null)
 
-    suspend fun reset() {
+    suspend fun reset() = withContext(dispatcher) {
         bufferedKeyAttestation.emit(null)
         bufferedInstanceAttestation.emit(null)
         instanceAttestationHelper.reset()
     }
 
-    suspend fun getInstanceAttestationKeyMaterial() = instanceAttestationHelper.keyMaterial()
+    suspend fun getInstanceAttestationKeyMaterial() =
+        withContext(dispatcher) { instanceAttestationHelper.keyMaterial() }
 
-    suspend fun preloadInstanceAttestation() = catchingUnwrapped {
-        Napier.d("AttestationService: Preload instance attestation")
-        requestInstanceAttestation(preloadInstanceAttestationInput).let {
-            bufferedInstanceAttestation.emit(it)
+    suspend fun preloadInstanceAttestation() = withContext(dispatcher) {
+        catchingUnwrapped {
+            Napier.d("AttestationService: Preload instance attestation")
+            requestInstanceAttestation(preloadInstanceAttestationInput).let {
+                bufferedInstanceAttestation.emit(it)
+            }
         }
     }.onFailure {
         Napier.e("AttestationService: Error preloading instance attestation. $it")
     }
 
-    suspend fun preloadKeyAttestation() = catchingUnwrapped {
-        Napier.d("AttestationService: Preload key attestation")
-        requestKeyAttestation(preloadKeyAttestationInput).let {
-            bufferedKeyAttestation.emit(it)
+    suspend fun preloadKeyAttestation() = withContext(dispatcher) {
+        catchingUnwrapped {
+            Napier.d("AttestationService: Preload key attestation")
+            requestKeyAttestation(preloadKeyAttestationInput).let {
+                bufferedKeyAttestation.emit(it)
+            }
+        }.onFailure {
+            Napier.e("AttestationService: Error preloading key attestation. $it")
         }
-    }.onFailure {
-        Napier.e("AttestationService: Error preloading key attestation. $it")
     }
 
-    suspend fun loadInstanceAttestation(input: LoadInstanceAttestationInput) = catching {
-        requestInstanceAttestation(input)
+    suspend fun loadInstanceAttestation(input: LoadInstanceAttestationInput) = withContext(dispatcher) {
+        catching {
+            requestInstanceAttestation(input)
+        }
     }
 
-    suspend fun loadKeyAttestation(input: KeyAttestationInput) = catching {
-        requestKeyAttestation(input)
+    suspend fun loadKeyAttestation(input: KeyAttestationInput) = withContext(dispatcher) {
+        catching {
+            requestKeyAttestation(input)
+        }
     }
 
     fun getWalletProviderHost() = config.walletProviderHost
@@ -121,7 +132,10 @@ class AttestationService(
     ): JwsCompactTyped<KeyAttestationJwt> {
         if (input.allowBuffer()) {
             bufferedKeyAttestation.firstOrNull()?.let { buffer ->
-                if (buffer.hasRemainingKeyStorageStatusPeriod(input.preferredKeyStorageStatusPeriod ?: PREFERRED_DEFAULT_TTL)) {
+                if (buffer.hasRemainingKeyStorageStatusPeriod(
+                        input.preferredKeyStorageStatusPeriod ?: PREFERRED_DEFAULT_TTL
+                    )
+                ) {
                     Napier.d("AttestationService: Use buffered key attestation")
                     bufferedKeyAttestation.emit(null)
                     return buffer
