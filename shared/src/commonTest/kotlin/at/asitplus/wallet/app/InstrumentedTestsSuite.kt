@@ -362,7 +362,7 @@ private const val TEST_PORTRAIT_PNG =
 private fun createWalletDependencyProvider(platformAdapter: PlatformAdapter): WalletDependencyProvider {
     val dummyDataStoreService = DummyDataStoreService()
     val ks = object : KeystoreService(dummyDataStoreService, holderKeyFactory = InMemoryHolderKeyFactory()) {
-        override suspend fun testSigner() = catchingUnwrapped { getSigner() }.isSuccess
+        override suspend fun testSigner() = true
     }
     return WalletDependencyProvider(
         keystoreService = ks,

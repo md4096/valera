@@ -2,6 +2,7 @@ package at.asitplus.wallet.app.common
 
 import at.asitplus.signum.indispensable.equalsCryptographically
 import at.asitplus.wallet.app.common.keys.InMemoryHolderKeyFactory
+import at.asitplus.wallet.app.common.keys.certificateStorageKey
 import data.storage.DummyDataStoreService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -11,6 +12,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@Suppress("DEPRECATION")
 class KeystoreServiceTest {
 
     @Test

@@ -27,6 +27,7 @@ fun appModule(): Module = module {
             WalletMain(
                 keyMaterial = get(),
                 signingUiCallbacks = get(),
+                holderKeyManager = get(),
                 dataStoreService = get(),
                 platformAdapter = get(),
                 subjectCredentialStore = get(),

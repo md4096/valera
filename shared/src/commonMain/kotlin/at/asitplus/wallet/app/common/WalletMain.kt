@@ -13,6 +13,7 @@ import at.asitplus.wallet.app.common.dcapi.DCAPIExportService
 import at.asitplus.wallet.app.common.dcapi.DCAPIIssuingRequest
 import at.asitplus.wallet.app.common.dcapi.DCAPIVerificationRequest
 import at.asitplus.wallet.app.common.dcapi.data.export.CredentialRegistry
+import at.asitplus.wallet.app.common.keys.HolderKeyManager
 import at.asitplus.wallet.app.common.presentation.LocalPresentmentSessionCoordinator
 import at.asitplus.wallet.app.common.presentation.LongfellowZkRegistration
 import at.asitplus.wallet.app.common.validation.StoredCredentialValidator
@@ -49,6 +50,7 @@ import org.multipaz.prompt.PromptModel
 class WalletMain(
     val keyMaterial: WalletKeyMaterial,
     val signingUiCallbacks: SigningUiCallbacks,
+    val holderKeyManager: HolderKeyManager,
     val dataStoreService: DataStoreService,
     val platformAdapter: PlatformAdapter,
     val subjectCredentialStore: WalletSubjectCredentialStore,
@@ -94,11 +96,16 @@ class WalletMain(
     }
 
     /**
-     * Starts the periodic checks of the stored credentials, of the Trust Lists and the WRPRC trust anchors, and loads
-     * the ZK circuits ahead of the first presentation, which waits for them. Not started in the iOS Identity Document
-     * Provider extension, see [createTransientFlowWalletSessionScope].
+     * Migrates the legacy holder key, starts the periodic checks of the stored credentials, of the Trust Lists and the
+     * WRPRC trust anchors, and loads the ZK circuits ahead of the first presentation, which waits for them. Not started
+     * in the iOS Identity Document Provider extension, see [createTransientFlowWalletSessionScope], which must not write
+     * the holder key registry.
      */
     fun startBackgroundWork() {
+        scope.launch {
+            catchingUnwrapped { holderKeyManager.migrateLegacyKey() }
+                .onFailure { Napier.w("Migrating the legacy holder key failed", it) }
+        }
         credentialValidityService.startChecking()
         trustListService.startChecking()
         scope.launch { LongfellowZkRegistration.ensureRegistered() }
