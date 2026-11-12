@@ -30,6 +30,8 @@ class HolderKeyManager(
     private val signingUi: SigningUiCallbacks,
     private val dataStoreService: DataStoreService,
     private val clock: Clock = Clock.System,
+    /** Only resolve keys, as in the iOS extension. */
+    private val resolveOnly: Boolean = false,
 ) : HolderKeyResolver {
 
     /**
@@ -57,8 +59,10 @@ class HolderKeyManager(
 
     /** The legacy holder key, created if there is none, and registered. Fails if it can't be created. */
     suspend fun legacyKey(): WalletKeyMaterial {
-        val signer = factory.load(Configuration.KS_ALIAS) ?: factory.create(Configuration.KS_ALIAS)
-        register(Configuration.KS_ALIAS, signer)
+        val signer = factory.load(Configuration.KS_ALIAS)
+            ?: if (resolveOnly) throw HolderKeyNotFoundException("No legacy holder key, and keys are only resolved here")
+            else factory.create(Configuration.KS_ALIAS)
+        if (!resolveOnly) register(Configuration.KS_ALIAS, signer)
         return keyMaterial(signer, Configuration.KS_ALIAS)
     }
 
@@ -73,10 +77,14 @@ class HolderKeyManager(
     }
 
     /** The key for a new credential request: still the legacy key, which every credential is bound to. */
-    suspend fun allocateForIssuance(): KeyMaterial = legacyKey()
+    suspend fun allocateForIssuance(): KeyMaterial {
+        requireWritable()
+        return legacyKey()
+    }
 
     /** Registers the legacy key, if any, and moves its certificate to its alias. Idempotent. */
     suspend fun migrateLegacyKey() {
+        requireWritable()
         factory.load(Configuration.KS_ALIAS)?.let { register(Configuration.KS_ALIAS, it) }
         dataStoreService.getPreference(LEGACY_CERT_STORAGE_KEY).first()?.let { legacy ->
             val target = certificateStorageKey(Configuration.KS_ALIAS)
@@ -91,7 +99,7 @@ class HolderKeyManager(
      * including the legacy key. Returns how many aliases were cleaned up. See [HolderKeyCleanup].
      */
     suspend fun collectUnreferenced(referenced: Set<String>, olderThan: Instant): Int =
-        registry.all()
+        requireWritable().let { registry.all() }
             .filter { it.isCollectable(referenced, olderThan) }
             .onEach { handle ->
                 when (handle) {
@@ -122,8 +130,15 @@ class HolderKeyManager(
      * Deletes all keys and their certificates as far as it can, so that a reset always finishes. A key that can't be
      * deleted stays registered, so a later reset deletes it. If the registry can't be read, deletes the keys under the
      * fixed aliases and clears the registry.
+     *
+     * Deletes nothing in a process that only resolves keys ([resolveOnly]): the main app's [HolderKeyCleanup] deletes
+     * them once no credential is bound to them.
      */
     suspend fun deleteAll() {
+        if (resolveOnly) {
+            Napier.i("HolderKeyManager: Holder keys are only resolved in this process, the main app deletes them")
+            return
+        }
         val registered = catchingUnwrapped { registry.all() }
             .onFailure { Napier.w("HolderKeyManager: The registry can't be read, deleting the fixed aliases only", it) }
             .getOrNull()
@@ -149,6 +164,8 @@ class HolderKeyManager(
         if (failed.isEmpty()) Napier.i("HolderKeyManager: Deleted all holder keys")
         else Napier.w("HolderKeyManager: Deleted all holder keys but those under $failed")
     }
+
+    private fun requireWritable() = check(!resolveOnly) { "Holder keys are only resolved in this process" }
 
     private suspend fun register(alias: String, signer: Signer) {
         val thumbprint = signer.publicKey.holderKeyThumbprint

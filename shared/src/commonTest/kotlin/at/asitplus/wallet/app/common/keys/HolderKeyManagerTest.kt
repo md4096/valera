@@ -228,6 +228,44 @@ class HolderKeyManagerTest {
         assertEquals(emptyList(), registry.all())
     }
 
+    @Test
+    fun resolveOnlyNeitherCreatesKeysNorWritesTheRegistry() = runTest {
+        val fixture = Fixture()
+        val readOnly = HolderKeyManager(
+            fixture.registry, fixture.factory, SigningUiCallbacks(), fixture.dataStore,
+            resolveOnly = true,
+        )
+
+        assertFailsWith<HolderKeyNotFoundException> { readOnly.legacyKey() }
+        assertEquals(emptySet(), fixture.factory.aliases)
+
+        val legacy = fixture.factory.create(Configuration.KS_ALIAS)
+        assertTrue(readOnly.legacyKey().publicKey.equalsCryptographically(legacy.publicKey))
+        assertTrue(readOnly.resolve(legacy.publicKey).getOrThrow().publicKey.equalsCryptographically(legacy.publicKey))
+        assertEquals(emptyList(), fixture.registry.all())
+
+        assertFailsWith<IllegalStateException> { readOnly.allocateForIssuance() }
+        assertFailsWith<IllegalStateException> { readOnly.migrateLegacyKey() }
+        assertFailsWith<IllegalStateException> { readOnly.collectUnreferenced(emptySet(), now()) }
+        assertEquals(setOf(Configuration.KS_ALIAS), fixture.factory.aliases)
+    }
+
+    @Test
+    fun deleteAllInAResolveOnlyProcessDeletesNothingAndDoesNotFail() = runTest {
+        val fixture = Fixture()
+        val key = fixture.factory.create("holder-1")
+        fixture.registry.put(HolderKeyHandle.Platform("holder-1", key.publicKey.holderKeyThumbprint, now()))
+        val readOnly = HolderKeyManager(
+            fixture.registry, fixture.factory, SigningUiCallbacks(), fixture.dataStore,
+            resolveOnly = true,
+        )
+
+        readOnly.deleteAll()
+
+        assertEquals(setOf("holder-1"), fixture.factory.aliases)
+        assertEquals(key.publicKey.holderKeyThumbprint, fixture.registry.all().single().thumbprint)
+    }
+
     private fun otherKey() = Signer.Ephemeral { ec {} }.getOrThrow().publicKey
 
     private fun now() = kotlin.time.Clock.System.now()

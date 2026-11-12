@@ -15,6 +15,8 @@ data class WalletSessionBindings(
     val platformAdapter: PlatformAdapter,
     val dataStoreService: DataStoreService,
     val keystoreService: KeystoreService,
+    /** Whether this process only resolves holder keys, see [at.asitplus.wallet.app.common.keys.HolderKeyManager]. */
+    val resolveHolderKeysOnly: Boolean,
     /** Cancelled via [SessionHandle.onClose] when the session scope is replaced or closed. */
     val sessionCoroutineScope: CoroutineScope,
 )

@@ -422,6 +422,7 @@ private fun createIosWalletSessionScope(
             platformAdapter = platformAdapter,
             dataStoreService = dataStoreService,
             startBackgroundWork = !isAppExtension(),
+            resolveHolderKeysOnly = isAppExtension(),
         )
     }
 }

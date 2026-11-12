@@ -181,6 +181,7 @@ private fun ComposeUiTest.runEndToEndTest() {
                                 platformAdapter = walletDependencyProvider.platformAdapter,
                                 dataStoreService = walletDependencyProvider.dataStoreService,
                                 keystoreService = walletDependencyProvider.keystoreService,
+                                resolveHolderKeysOnly = false,
                                 sessionCoroutineScope = sessionCoroutineScope
                             )
                         )

@@ -58,6 +58,7 @@ fun platformModule() = module {
                 factory = get(),
                 signingUi = get(),
                 dataStoreService = get(),
+                resolveOnly = get<WalletSessionBindings>().resolveHolderKeysOnly,
             )
         }
         scoped { HolderKeyHolds(get()) }

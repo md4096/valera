@@ -16,6 +16,7 @@ private fun createWalletSessionScope(
     promptModel: PromptModel,
     platformAdapter: PlatformAdapter,
     dataStoreService: DataStoreService,
+    resolveHolderKeysOnly: Boolean,
 ): SessionHandle {
     val keystoreService = KeystoreService(dataStoreService)
     val httpService = KoinPlatform.getKoin().get<HttpService>()
@@ -48,6 +49,7 @@ private fun createWalletSessionScope(
             platformAdapter = platformAdapter,
             dataStoreService = dataStoreService,
             keystoreService = keystoreService,
+            resolveHolderKeysOnly = resolveHolderKeysOnly,
             sessionCoroutineScope = sessionCoroutineScope
         )
     )
@@ -81,6 +83,7 @@ fun createMainWalletSessionScope(
         promptModel = promptModel,
         platformAdapter = platformAdapter,
         dataStoreService = dataStoreService,
+        resolveHolderKeysOnly = false,
     ).also { sessionHandle ->
         sessionHandle.scope.get<WalletMain>().apply {
             startBackgroundWork()
@@ -99,6 +102,8 @@ fun createMainWalletSessionScope(
  * the checks of every credential, the WRPRC trust anchors and the ZK circuits contributed to. Its requests refresh
  * stale Trust Lists themselves, the main app checks the rest, and a presentation loads the ZK circuits when it is
  * finalized.
+ * @param resolveHolderKeysOnly whether this process only resolves holder keys, as the iOS extension does, see
+ * [at.asitplus.wallet.app.common.keys.HolderKeyManager].
  */
 fun createTransientFlowWalletSessionScope(
     sessionName: String,
@@ -109,6 +114,7 @@ fun createTransientFlowWalletSessionScope(
     platformAdapter: PlatformAdapter,
     dataStoreService: DataStoreService,
     startBackgroundWork: Boolean = true,
+    resolveHolderKeysOnly: Boolean = false,
 ): SessionHandle = createWalletSessionScope(
     sessionName = sessionName,
     intentState = intentState,
@@ -117,6 +123,7 @@ fun createTransientFlowWalletSessionScope(
     promptModel = promptModel,
     platformAdapter = platformAdapter,
     dataStoreService = dataStoreService,
+    resolveHolderKeysOnly = resolveHolderKeysOnly,
 ).also { sessionHandle ->
     if (startBackgroundWork) sessionHandle.scope.get<WalletMain>().startBackgroundWork()
 }
