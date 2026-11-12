@@ -1,7 +1,5 @@
 package at.asitplus.wallet.app.common.domain.platform.di
 
-import at.asitplus.catchingUnwrapped
-import at.asitplus.wallet.app.common.FallBackKeyMaterial
 import at.asitplus.wallet.app.common.IntentState
 import at.asitplus.wallet.app.common.PlatformAdapter
 import at.asitplus.wallet.app.common.SESSION_NAME
@@ -61,10 +59,8 @@ fun platformModule() = module {
             )
         }
         scoped<WalletKeyMaterial> {
-            runBlocking {
-                catchingUnwrapped { get<HolderKeyManager>().legacyKey() }
-                    .getOrElse { WalletKeyMaterial(FallBackKeyMaterial(it), get()) }
-            }
+            @Suppress("DEPRECATION")
+            runBlocking { get<HolderKeyManager>().legacyKeyOrFallback() }
         } binds arrayOf(KeyMaterial::class)
 
         scoped<HotWalletSubjectCredentialStore> {

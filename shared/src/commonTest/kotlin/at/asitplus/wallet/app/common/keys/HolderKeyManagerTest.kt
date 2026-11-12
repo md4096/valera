@@ -3,12 +3,14 @@ package at.asitplus.wallet.app.common.keys
 import at.asitplus.signum.indispensable.equalsCryptographically
 import at.asitplus.signum.supreme.sign.Signer
 import at.asitplus.wallet.app.common.Configuration
+import at.asitplus.wallet.app.common.FallBackKeyMaterial
 import at.asitplus.wallet.app.common.SigningUiCallbacks
 import data.storage.DummyDataStoreService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -194,6 +196,23 @@ class HolderKeyManagerTest {
         fixture.factory.create(Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.first())
 
         assertFalse(fixture.manager.isValid())
+    }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun fallbackKeyIsNeverRegistered() = runTest {
+        val dataStore = DummyDataStoreService()
+        val registry = PersistentHolderKeyRegistry(dataStore)
+        val failingFactory = object : HolderKeyFactory by InMemoryHolderKeyFactory() {
+            override suspend fun create(alias: String): Signer = throw IllegalStateException("No secure hardware")
+        }
+        val manager = HolderKeyManager(registry, failingFactory, SigningUiCallbacks(), dataStore)
+
+        val keyMaterial = manager.legacyKeyOrFallback()
+
+        assertIs<FallBackKeyMaterial>(keyMaterial.keyMaterial)
+        assertFailsWith<IllegalStateException> { manager.legacyKey() }
+        assertEquals(emptyList(), registry.all())
     }
 
     private fun otherKey() = Signer.Ephemeral { ec {} }.getOrThrow().publicKey

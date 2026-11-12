@@ -7,6 +7,7 @@ import at.asitplus.signum.indispensable.CryptoPublicKey
 import at.asitplus.signum.indispensable.josef.toJsonWebKey
 import at.asitplus.signum.supreme.sign.Signer
 import at.asitplus.wallet.app.common.Configuration
+import at.asitplus.wallet.app.common.FallBackKeyMaterial
 import at.asitplus.wallet.app.common.SigningUiCallbacks
 import at.asitplus.wallet.app.common.WalletKeyMaterial
 import at.asitplus.wallet.lib.agent.KeyMaterial
@@ -52,11 +53,21 @@ class HolderKeyManager(
         keyMaterial(signer, alias)
     }
 
-    /** The legacy holder key, created if there is none, and registered. */
+    /** The legacy holder key, created if there is none, and registered. Fails if it can't be created. */
     suspend fun legacyKey(): WalletKeyMaterial {
         val signer = factory.load(Configuration.KS_ALIAS) ?: factory.create(Configuration.KS_ALIAS)
         register(Configuration.KS_ALIAS, signer)
         return keyMaterial(signer, Configuration.KS_ALIAS)
+    }
+
+    /**
+     * The legacy holder key, or [FallBackKeyMaterial] if it can't be created, so that the app still starts. The
+     * fallback can't sign and is never registered.
+     */
+    @Deprecated("Only for the single KeyMaterial binding; use resolve()")
+    suspend fun legacyKeyOrFallback(): WalletKeyMaterial = catchingUnwrapped { legacyKey() }.getOrElse {
+        Napier.e("HolderKeyManager: No holder key available, using FallBackKeyMaterial", it)
+        WalletKeyMaterial(FallBackKeyMaterial(it), signingUi)
     }
 
     /** Registers the legacy key, if any, and moves its certificate to its alias. Idempotent. */

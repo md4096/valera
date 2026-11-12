@@ -89,12 +89,6 @@ class WalletMain(
     )
     private var dcApiRegistrationJob: Job? = null
 
-    init {
-        if (keyMaterial.keyMaterial is FallBackKeyMaterial) {
-            Napier.e("FallBackKeyMaterial: ${keyMaterial.keyMaterial.reason}")
-        }
-    }
-
     /**
      * Migrates the legacy holder key, starts the periodic checks of the stored credentials, of the Trust Lists and the
      * WRPRC trust anchors, and loads the ZK circuits ahead of the first presentation, which waits for them. Not started
