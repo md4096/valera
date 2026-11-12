@@ -8,7 +8,6 @@ import at.asitplus.signum.indispensable.josef.JwsCompactTyped
 import at.asitplus.signum.indispensable.josef.KeyAttestationJwt
 import at.asitplus.wallet.app.common.BuildContext
 import at.asitplus.wallet.app.common.HttpService
-import at.asitplus.wallet.app.common.WalletKeyMaterial
 import at.asitplus.wallet.app.common.data.SettingsRepository
 import at.asitplus.wallet.lib.oauth2.OAuth2ProtocolClient.LoadInstanceAttestationInput
 import at.asitplus.wallet.lib.oidvci.OpenId4VciClient.KeyAttestationInput
@@ -30,7 +29,6 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class AttestationService(
-    private val holderKey: WalletKeyMaterial,
     private val config: SettingsRepository,
     buildContext: BuildContext,
     httpService: HttpService,
@@ -50,7 +48,7 @@ class AttestationService(
         buildContext = buildContext,
     )
 
-    private val keyAttestationHelper = KeyAttestationHelper(config, httpClient, holderKey)
+    private val keyAttestationHelper = KeyAttestationHelper(config, httpClient)
     val bufferedInstanceAttestation = MutableStateFlow<JwsCompactTyped<JsonWebToken>?>(null)
 
     suspend fun reset() {
@@ -72,9 +70,10 @@ class AttestationService(
         requestInstanceAttestation(input)
     }
 
+    /** Loads a key attestation of the keys of [input]. VC-K's proof creators check the attested keys. */
     suspend fun loadKeyAttestation(input: KeyAttestationInput) = catching {
         ensureWalletProviderAttestationEnabled()
-        requestKeyAttestation(input)
+        fetchKeyAttestation(input)
     }
 
     fun getWalletProviderHost() = config.walletProviderHost
@@ -86,7 +85,6 @@ class AttestationService(
     private suspend fun requestInstanceAttestation(
         input: LoadInstanceAttestationInput,
     ): JwsCompactTyped<JsonWebToken> {
-        ensureWalletProviderAttestationEnabled()
         if (allowBuffer()) {
             bufferedInstanceAttestation.firstOrNull()?.let { buffer ->
                 if (buffer.hasRemainingClientStatusPeriod(input.preferredClientStatusPeriod ?: PREFERRED_DEFAULT_TTL)) {
@@ -106,39 +104,11 @@ class AttestationService(
             }
     }
 
-    private suspend fun requestKeyAttestation(
-        input: KeyAttestationInput,
-    ): JwsCompactTyped<KeyAttestationJwt> {
-        ensureWalletProviderAttestationEnabled()
-        Napier.d("AttestationService: Request new key attestation")
-        return getVerifiedKeyAttestation(input)
-    }
-
-    /**
-     * Fetches a key attestation and verifies that the attested key actually matches the holder
-     * signing key, retrying on mismatch. This mirrors [InstanceAttestationHelper]'s confirmation-key
-     * guard: it prevents the wallet from sending a credential-request proof whose `attested_keys[0]`
-     * diverges from the key signing the proof, which the issuer would reject in
-     * [at.asitplus.wallet.lib.oidvci.ProofValidator.validateJwtProof].
-     */
-    private suspend fun getVerifiedKeyAttestation(
-        input: KeyAttestationInput,
-    ): JwsCompactTyped<KeyAttestationJwt> {
-        var mismatch: IllegalStateException? = null
-        repeat(MAX_KEY_ATTESTATION_ATTEMPTS) {
-            val keyAttestation = fetchKeyAttestation(input)
-            if (keyAttestation.hasMatchingAttestedKey()) {
-                return keyAttestation
-            }
-            mismatch = IllegalStateException(keyAttestation.attestedKeyMismatchMessage())
-            Napier.w("Discarding newly loaded key attestation. ${mismatch.message}")
-        }
-        throw mismatch ?: IllegalStateException("Unable to load key attestation")
-    }
-
     private suspend fun fetchKeyAttestation(
         input: KeyAttestationInput,
     ): JwsCompactTyped<KeyAttestationJwt> {
+        require(input.keys.isNotEmpty()) { "No keys to attest" }
+        Napier.d("AttestationService: Request new key attestation")
         val instanceAttestation = requestInstanceAttestation(
             LoadInstanceAttestationInput(
                 authorizationServer = "",
@@ -152,6 +122,7 @@ class AttestationService(
         )
 
         return keyAttestationHelper.requestKeyAttestation(
+            keys = input.keys,
             instanceAttestation = instanceAttestation,
             pop = pop,
             nonce = input.clientNonce,
@@ -160,13 +131,6 @@ class AttestationService(
         )
     }
 
-    private fun JwsCompactTyped<KeyAttestationJwt>.hasMatchingAttestedKey(): Boolean =
-        payload.attestedKeys.firstOrNull()?.jwkThumbprint == holderKey.jsonWebKey.jwkThumbprint
-
-    private fun JwsCompactTyped<KeyAttestationJwt>.attestedKeyMismatchMessage(): String =
-        "Key attestation attested_keys[0] does not match holder signing key. " +
-                "Expected attested thumbprint: ${payload.attestedKeys.firstOrNull()?.jwkThumbprint}, " +
-                "got keyMaterial thumbprint: ${holderKey.jsonWebKey.jwkThumbprint}"
 
     private fun JwsCompactTyped<JsonWebToken>.hasRemainingClientStatusPeriod(ttl: Duration): Boolean {
         val now = Clock.System.now()
@@ -191,7 +155,4 @@ class WalletProviderAttestationDisabledException : IllegalStateException(
     "The issuing service requires wallet provider attestation, but wallet provider attestation is disabled in settings."
 )
 
-private const val MAX_KEY_ATTESTATION_ATTEMPTS = 2
-
 fun allowBuffer() = false
-

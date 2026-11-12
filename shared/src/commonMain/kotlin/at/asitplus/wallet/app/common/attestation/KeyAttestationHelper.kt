@@ -1,12 +1,12 @@
 package at.asitplus.wallet.app.common.attestation
 
 import at.asitplus.openid.DurationSecondsIntSerializer
+import at.asitplus.signum.indispensable.CryptoPublicKey
 import at.asitplus.signum.indispensable.josef.JsonWebKey
 import at.asitplus.signum.indispensable.josef.JsonWebToken
 import at.asitplus.signum.indispensable.josef.JwsCompactTyped
 import at.asitplus.signum.indispensable.josef.KeyAttestationJwt
 import at.asitplus.signum.indispensable.josef.toJsonWebKey
-import at.asitplus.wallet.app.common.WalletKeyMaterial
 import at.asitplus.wallet.app.common.data.SettingsRepository
 import io.github.aakira.napier.Napier
 import io.ktor.client.HttpClient
@@ -28,7 +28,6 @@ import kotlin.time.Duration
 class KeyAttestationHelper(
     private val config: SettingsRepository,
     private val httpClient: HttpClient,
-    private val keyMaterial: WalletKeyMaterial,
 ) {
     private fun keyAttestationEndpoint() = config.walletProviderHost.map {
         URLBuilder(it).apply {
@@ -36,7 +35,9 @@ class KeyAttestationHelper(
         }
     }
 
+    /** Requests a key attestation of [keys], in order, from the wallet provider. */
     suspend fun requestKeyAttestation(
+        keys: List<CryptoPublicKey>,
         instanceAttestation: JwsCompactTyped<JsonWebToken>,
         pop: JwsCompactTyped<JsonWebToken>,
         nonce: String?,
@@ -44,14 +45,13 @@ class KeyAttestationHelper(
         supportedAlgorithms: Collection<String>?
 
     ): JwsCompactTyped<KeyAttestationJwt> {
-        val holderKey = keyMaterial.getUnderLyingSigner()
-        Napier.d("Requesting key attestation for key ${holderKey.publicKey.toJsonWebKey().jwkThumbprint}")
+        Napier.d("Requesting key attestation for keys ${keys.map { it.toJsonWebKey().jwkThumbprint }}")
         return httpClient.post(Url(keyAttestationEndpoint().first())) {
             contentType(ContentType.Application.Json)
             setBody(
                 KeyAttestationRequest(
                     token = instanceAttestation.jws.toString(),
-                    keys = listOf(holderKey.publicKey.toJsonWebKey()),
+                    keys = keys.map { it.toJsonWebKey() },
                     proof = pop.jws.toString(),
                     nonce = nonce,
                     keyStorage = setOf("iso_18045_moderate"),
