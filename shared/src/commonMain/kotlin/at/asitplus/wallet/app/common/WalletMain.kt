@@ -48,6 +48,7 @@ import org.multipaz.prompt.PromptModel
  */
 class WalletMain(
     val keyMaterial: WalletKeyMaterial,
+    val signingUiCallbacks: SigningUiCallbacks,
     val dataStoreService: DataStoreService,
     val platformAdapter: PlatformAdapter,
     val subjectCredentialStore: WalletSubjectCredentialStore,

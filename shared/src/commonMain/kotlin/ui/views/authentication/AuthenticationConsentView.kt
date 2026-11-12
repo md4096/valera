@@ -89,10 +89,10 @@ fun AuthenticationConsentView(
     trustListService: TrustListService
 ) {
     DisposableEffect(vm) {
-        val previousOnUnauthenticated = vm.walletMain.keyMaterial.onUnauthenticated
-        vm.walletMain.keyMaterial.onUnauthenticated = vm.onUnauthenticated
+        val previousOnUnauthenticated = vm.walletMain.signingUiCallbacks.onUnauthenticated
+        vm.walletMain.signingUiCallbacks.onUnauthenticated = vm.onUnauthenticated
         onDispose {
-            vm.walletMain.keyMaterial.onUnauthenticated = previousOnUnauthenticated
+            vm.walletMain.signingUiCallbacks.onUnauthenticated = previousOnUnauthenticated
         }
     }
     val isLocalPresentation = vm.spLocation == "Local Presentation"

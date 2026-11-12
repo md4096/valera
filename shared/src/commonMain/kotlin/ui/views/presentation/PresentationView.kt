@@ -75,10 +75,10 @@ fun PresentationView(
 ) {
     val presentationStateModel = presentationViewModel.presentationStateModel
     DisposableEffect(presentationViewModel) {
-        val previousOnUnauthenticated = presentationViewModel.walletMain.keyMaterial.onUnauthenticated
-        presentationViewModel.walletMain.keyMaterial.onUnauthenticated = {}
+        val previousOnUnauthenticated = presentationViewModel.walletMain.signingUiCallbacks.onUnauthenticated
+        presentationViewModel.walletMain.signingUiCallbacks.onUnauthenticated = {}
         onDispose {
-            presentationViewModel.walletMain.keyMaterial.onUnauthenticated = previousOnUnauthenticated
+            presentationViewModel.walletMain.signingUiCallbacks.onUnauthenticated = previousOnUnauthenticated
         }
     }
 

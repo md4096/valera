@@ -26,6 +26,7 @@ fun appModule(): Module = module {
         scoped {
             WalletMain(
                 keyMaterial = get(),
+                signingUiCallbacks = get(),
                 dataStoreService = get(),
                 platformAdapter = get(),
                 subjectCredentialStore = get(),

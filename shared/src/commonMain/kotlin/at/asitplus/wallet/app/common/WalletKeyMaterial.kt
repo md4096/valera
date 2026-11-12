@@ -10,8 +10,10 @@ import at.asitplus.wallet.lib.agent.KeyMaterial
 import io.github.aakira.napier.Napier
 import org.jetbrains.compose.resources.getString
 
-open class WalletKeyMaterial(val keyMaterial: KeyMaterial) :
-    KeyMaterial by keyMaterial {
+open class WalletKeyMaterial(
+    val keyMaterial: KeyMaterial,
+    private val uiCallbacks: SigningUiCallbacks,
+) : KeyMaterial by keyMaterial {
 
     init {
         // Napier.i won't print anything to logcat, because it's not initialized yet
@@ -28,23 +30,13 @@ open class WalletKeyMaterial(val keyMaterial: KeyMaterial) :
                 signer.sign(data) {
                     unlockPrompt {
                         message = promptTitle
-                        promptCancelText?.let { cancelText = it }
                     }
                 }
             }
 
             else -> signer.sign(data)
         }.also {
-            when (it) {
-                is SignatureResult.Error -> onSignError?.invoke()
-                is SignatureResult.Failure -> onUnauthenticated?.invoke()
-                is SignatureResult.Success -> onSuccess?.invoke()
-            }
+            if (it is SignatureResult.Failure) uiCallbacks.onUnauthenticated?.invoke()
         }
     }
-
-    var onUnauthenticated: (() -> Unit)? = null
-    var onSignError: (() -> Unit)? = null
-    var onSuccess: (() -> Unit)? = null
-    var promptCancelText: String? = null
 }

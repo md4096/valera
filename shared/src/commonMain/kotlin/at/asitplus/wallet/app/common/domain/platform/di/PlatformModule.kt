@@ -4,6 +4,7 @@ import at.asitplus.wallet.app.common.IntentState
 import at.asitplus.wallet.app.common.PlatformAdapter
 import at.asitplus.wallet.app.common.SESSION_NAME
 import at.asitplus.wallet.app.common.SessionService
+import at.asitplus.wallet.app.common.SigningUiCallbacks
 import at.asitplus.wallet.app.common.WalletKeyMaterial
 import at.asitplus.wallet.app.common.WalletSessionBindings
 import at.asitplus.wallet.app.common.decodeImage
@@ -41,8 +42,12 @@ fun platformModule() = module {
         scopedOf(::PersistentSubjectCredentialStore)
         scopedOf(::PersistentTrustListStore)
 
+        scopedOf(::SigningUiCallbacks)
         scoped<WalletKeyMaterial> {
-            WalletKeyMaterial(get<at.asitplus.wallet.app.common.KeystoreService>().getSignerBlocking())
+            WalletKeyMaterial(
+                keyMaterial = get<at.asitplus.wallet.app.common.KeystoreService>().getSignerBlocking(),
+                uiCallbacks = get(),
+            )
         } binds arrayOf(KeyMaterial::class)
 
         scoped<HotWalletSubjectCredentialStore> {
