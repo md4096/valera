@@ -25,7 +25,6 @@ fun appModule(): Module = module {
     scope(named(SESSION_NAME)) {
         scoped {
             WalletMain(
-                keyMaterial = get(),
                 signingUiCallbacks = get(),
                 holderKeyManager = get(),
                 holderKeyCleanup = get(),

@@ -49,9 +49,10 @@ import at.asitplus.wallet.app.common.SESSION_NAME
 import at.asitplus.wallet.app.common.SessionHandle
 import at.asitplus.wallet.app.common.SessionService
 import at.asitplus.wallet.app.common.WalletDependencyProvider
-import at.asitplus.wallet.app.common.keys.InMemoryHolderKeyFactory
 import at.asitplus.wallet.app.common.WalletSessionBindings
 import at.asitplus.wallet.app.common.di.appModule
+import at.asitplus.wallet.app.common.keys.HolderKeyManager
+import at.asitplus.wallet.app.common.keys.InMemoryHolderKeyFactory
 import at.asitplus.wallet.app.common.validation.ValidationPolicies
 import at.asitplus.wallet.app.common.validation.describeProblems
 import at.asitplus.wallet.eupidsdjwt.EU_PID_SD_JWT_VCT
@@ -61,24 +62,28 @@ import at.asitplus.wallet.lib.agent.ClaimToBeIssued
 import at.asitplus.wallet.lib.agent.CredentialToBeIssued
 import at.asitplus.wallet.lib.agent.EphemeralKeyWithoutCert
 import at.asitplus.wallet.lib.agent.HolderAgent
+import at.asitplus.wallet.lib.agent.Issuer
 import at.asitplus.wallet.lib.agent.IssuerAgent
-import at.asitplus.wallet.lib.agent.KeyMaterial
-import at.asitplus.wallet.lib.agent.SubjectCredentialStore
-import at.asitplus.wallet.lib.agent.toStoreCredentialInput
 import at.asitplus.wallet.lib.data.ConstantIndex.CredentialRepresentation.SD_JWT
 import at.asitplus.wallet.lib.data.SdJwtCredentialScheme
 import at.asitplus.wallet.lib.data.SdJwtFallbackCredentialScheme
 import at.asitplus.wallet.lib.data.rfc3986.toUri
+import at.asitplus.wallet.lib.openid.AuthnResponseResult
 import at.asitplus.wallet.lib.openid.ClientIdScheme
 import at.asitplus.wallet.lib.openid.CreationOptions
 import at.asitplus.wallet.lib.openid.CredentialPresentationRequestBuilder
 import at.asitplus.wallet.lib.openid.OpenId4VpRequestOptions
-import at.asitplus.wallet.lib.openid.AuthnResponseResult
 import at.asitplus.wallet.lib.openid.OpenId4VpVerifier
-import at.asitplus.wallet.lib.validation.CredentialValidator
+import at.asitplus.wallet.lib.validation.CredentialValidationInput
 import data.storage.AntilogAdapter
 import data.storage.DummyDataStoreService
 import io.matthewnelson.encoding.core.Decoder.Companion.decodeToByteArray
+import kotlin.test.assertIs
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -100,12 +105,6 @@ import org.koin.mp.KoinPlatform
 import org.multipaz.prompt.PromptModel
 import org.multipaz.prompt.Reason
 import ui.navigation.routes.RoutePrerequisites
-import kotlin.test.assertIs
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.minutes
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 
 @OptIn(ExperimentalUuidApi::class, ExperimentalTestApi::class)
 @ExperimentalMaterial3Api
@@ -146,13 +145,6 @@ private fun ComposeUiTest.runEndToEndTest() {
             module {
                 scope(named(SESSION_NAME)) {
                     scopedOf(::DummyCapabilitiesService) binds arrayOf(CapabilitiesService::class)
-                    scoped<HolderAgent> {
-                        HolderAgent(
-                            keyMaterial = get<KeyMaterial>(),
-                            subjectCredentialStore = get<SubjectCredentialStore>(),
-                            credentialValidator = get<CredentialValidator>(),
-                        )
-                    }
                 }
             }
         }
@@ -212,6 +204,8 @@ private fun ComposeUiTest.runEndToEndTest() {
             }
 
             val holderAgent: HolderAgent = koinInject(scope = sessionService.scope.value)
+            // The app's holder keys, in memory instead of the platform keystore, see createWalletDependencyProvider
+            val holderKeyManager: HolderKeyManager = koinInject(scope = sessionService.scope.value)
 
             LaunchedEffect(Unit) {
                 println("InstrumentedTests: starting credential issuance setup")
@@ -221,22 +215,26 @@ private fun ComposeUiTest.runEndToEndTest() {
                     statusListAgent = null,
                 )
                 catchingUnwrapped {
+                    // A new holder key, as for a credential request, so presenting resolves it like any other
+                    val holderKey = holderKeyManager.allocateForIssuance()
+                    val issued = issuer.issueCredential(
+                        CredentialToBeIssued.VcSd(
+                            getAttributes(),
+                            Clock.System.now().plus(60.minutes),
+                            pidSdJwtScheme(),
+                            holderKey.publicKey,
+                            OidcUserInfoExtended(userInfo = OidcUserInfo(subject = ""))
+                        )
+                    ).getOrThrow() as Issuer.IssuedCredential.VcSdJwt
                     // The ephemeral issuer has no certificate, so the credential is stored like one the user kept
                     // although its issuer is not trusted
-                    val result = holderAgent.storeCredentialWithReport(
-                        issuer.issueCredential(
-                            CredentialToBeIssued.VcSd(
-                                getAttributes(),
-                                Clock.System.now().plus(60.minutes),
-                                pidSdJwtScheme(),
-                                holderAgent.keyMaterial.publicKey,
-                                OidcUserInfoExtended(userInfo = OidcUserInfo(subject = ""))
-                            )
-                        )
-                            .getOrThrow()
-                            .toStoreCredentialInput(),
-                        ValidationPolicies.lenient,
+                    val prepared = holderAgent.prepareCredentialStorage(
+                        input = CredentialValidationInput.SdJwtVc(issued.signedSdJwtVc.serialize()),
+                        scheme = pidSdJwtScheme(),
+                        policy = ValidationPolicies.lenient,
+                        expectedHolderKeys = setOf(holderKey.publicKey),
                     ).getOrThrow()
+                    val result = holderAgent.storeAccepted(prepared).getOrThrow()
                     checkNotNull(result.storedEntry) { result.validation.report.describeProblems() }
                 }.onSuccess {
                     println("InstrumentedTests: credential issuance setup completed")
@@ -362,7 +360,7 @@ private const val TEST_PORTRAIT_PNG =
 
 private fun createWalletDependencyProvider(platformAdapter: PlatformAdapter): WalletDependencyProvider {
     val dummyDataStoreService = DummyDataStoreService()
-    val ks = object : KeystoreService(dummyDataStoreService, holderKeyFactory = InMemoryHolderKeyFactory()) {
+    val ks = object : KeystoreService(holderKeyFactory = InMemoryHolderKeyFactory()) {
         override suspend fun testSigner() = true
     }
     return WalletDependencyProvider(

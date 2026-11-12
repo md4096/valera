@@ -5,7 +5,6 @@ import at.asitplus.wallet.app.common.PlatformAdapter
 import at.asitplus.wallet.app.common.SESSION_NAME
 import at.asitplus.wallet.app.common.SessionService
 import at.asitplus.wallet.app.common.SigningUiCallbacks
-import at.asitplus.wallet.app.common.WalletKeyMaterial
 import at.asitplus.wallet.app.common.WalletSessionBindings
 import at.asitplus.wallet.app.common.decodeImage
 import at.asitplus.wallet.app.common.domain.platform.ImageDecoder
@@ -16,7 +15,6 @@ import at.asitplus.wallet.app.common.keys.HolderKeyHolds
 import at.asitplus.wallet.app.common.keys.HolderKeyManager
 import at.asitplus.wallet.app.common.keys.HolderKeyRegistry
 import at.asitplus.wallet.app.common.keys.PersistentHolderKeyRegistry
-import at.asitplus.wallet.lib.agent.KeyMaterial
 import at.asitplus.wallet.lib.agent.SubjectCredentialStore
 import data.storage.DataStoreService
 import data.storage.HotWalletSubjectCredentialStore
@@ -26,7 +24,6 @@ import data.storage.WalletSubjectCredentialStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.runBlocking
 import org.koin.core.module.dsl.scopedOf
 import org.koin.core.qualifier.named
 import org.koin.dsl.binds
@@ -71,10 +68,6 @@ fun platformModule() = module {
                 holderKeyHolds = get(),
             )
         }
-        scoped<WalletKeyMaterial> {
-            @Suppress("DEPRECATION")
-            runBlocking { get<HolderKeyManager>().legacyKeyOrFallback() }
-        } binds arrayOf(KeyMaterial::class)
 
         scoped<HotWalletSubjectCredentialStore> {
             HotWalletSubjectCredentialStore(

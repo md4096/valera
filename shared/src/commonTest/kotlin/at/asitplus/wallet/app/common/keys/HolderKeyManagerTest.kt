@@ -3,19 +3,19 @@ package at.asitplus.wallet.app.common.keys
 import at.asitplus.signum.indispensable.equalsCryptographically
 import at.asitplus.signum.supreme.sign.Signer
 import at.asitplus.wallet.app.common.Configuration
-import at.asitplus.wallet.app.common.FallBackKeyMaterial
 import at.asitplus.wallet.app.common.SigningUiCallbacks
 import at.asitplus.wallet.lib.agent.HolderKeyResolver
 import data.storage.DummyDataStoreService
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
 
 class HolderKeyManagerTest {
     private class Fixture {
@@ -212,8 +212,7 @@ class HolderKeyManagerTest {
     }
 
     @Test
-    @Suppress("DEPRECATION")
-    fun fallbackKeyIsNeverRegistered() = runTest {
+    fun withoutSecureHardwareAllocationFailsAndNothingIsRegistered() = runTest {
         val dataStore = DummyDataStoreService()
         val registry = PersistentHolderKeyRegistry(dataStore)
         val failingFactory = object : HolderKeyFactory by InMemoryHolderKeyFactory() {
@@ -221,11 +220,21 @@ class HolderKeyManagerTest {
         }
         val manager = HolderKeyManager(registry, failingFactory, SigningUiCallbacks(), dataStore)
 
-        val keyMaterial = manager.legacyKeyOrFallback()
+        assertFailsWith<IllegalStateException> { manager.allocateForIssuance() }
 
-        assertIs<FallBackKeyMaterial>(keyMaterial.keyMaterial)
-        assertFailsWith<IllegalStateException> { manager.legacyKey() }
         assertEquals(emptyList(), registry.all())
+    }
+
+    @Test
+    fun theCertificateOfAKeyIsStoredUnderItsAlias() = runTest {
+        val fixture = Fixture()
+
+        val certificate = assertNotNull(fixture.manager.legacyKey().getCertificate())
+
+        assertNotNull(fixture.dataStore.getPreference(certificateStorageKey(Configuration.KS_ALIAS)).first())
+        assertNull(fixture.dataStore.getPreference(LEGACY_CERT_STORAGE_KEY).first())
+        val reloaded = assertNotNull(fixture.manager.legacyKey().getCertificate())
+        assertTrue(certificate.encodeToDer().contentEquals(reloaded.encodeToDer()))
     }
 
     @Test

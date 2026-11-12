@@ -18,7 +18,7 @@ private fun createWalletSessionScope(
     dataStoreService: DataStoreService,
     resolveHolderKeysOnly: Boolean,
 ): SessionHandle {
-    val keystoreService = KeystoreService(dataStoreService)
+    val keystoreService = KeystoreService()
     val httpService = KoinPlatform.getKoin().get<HttpService>()
     registerCredentialMetadata(buildContext, dataStoreService, httpService)
     val scope = KoinPlatform.getKoin().createScope(

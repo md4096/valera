@@ -50,7 +50,6 @@ import org.multipaz.prompt.PromptModel
  * Main class to hold all services needed in the Compose App.
  */
 class WalletMain(
-    val keyMaterial: WalletKeyMaterial,
     val signingUiCallbacks: SigningUiCallbacks,
     val holderKeyManager: HolderKeyManager,
     private val holderKeyCleanup: HolderKeyCleanup,

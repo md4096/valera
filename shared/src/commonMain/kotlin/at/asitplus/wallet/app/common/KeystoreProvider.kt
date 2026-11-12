@@ -1,48 +1,21 @@
 package at.asitplus.wallet.app.common
 
-import AppResetRequiredException
-import at.asitplus.KmmResult
 import at.asitplus.catchingUnwrapped
-import at.asitplus.signum.indispensable.CryptoPrivateKey
-import at.asitplus.signum.indispensable.CryptoPublicKey
-import at.asitplus.signum.indispensable.SecretExposure
-import at.asitplus.signum.indispensable.SignatureAlgorithm
-import at.asitplus.signum.indispensable.pki.X509Certificate
-import at.asitplus.signum.supreme.SignatureResult
 import at.asitplus.signum.supreme.os.PlatformSigningProvider
-import at.asitplus.signum.supreme.sign.SignatureInput
-import at.asitplus.signum.supreme.sign.Signer
-import at.asitplus.wallet.lib.agent.EphemeralKeyWithoutCert
-import at.asitplus.wallet.lib.agent.KeyMaterial
 import at.asitplus.wallet.app.common.keys.HolderKeyFactory
-import at.asitplus.wallet.app.common.keys.LEGACY_CERT_STORAGE_KEY
-import at.asitplus.wallet.app.common.keys.PersistentSelfSignedCertKey
 import at.asitplus.wallet.app.common.keys.PlatformHolderKeyFactory
-import at.asitplus.wallet.app.common.keys.certificateStorageKey
-import data.storage.DataStoreService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-
+/** The platform keystore: the [holderKeyFactory] and the checks of its capabilities. */
 open class KeystoreService(
-    private val dataStoreService: DataStoreService,
     /** Runs the keystore calls of the session one after the other, also those of [holderKeyFactory]. */
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
     /** Tests replace it with one that doesn't need the platform keystore. */
     val holderKeyFactory: HolderKeyFactory = PlatformHolderKeyFactory(dispatcher),
 ) {
-
-    @Deprecated("Use HolderKeyManager.legacyKey()")
-    @Throws(Throwable::class)
-    open suspend fun getSigner(): KeyMaterial = catchingUnwrapped {
-        val signer = holderKeyFactory.load(Configuration.KS_ALIAS) ?: holderKeyFactory.create(Configuration.KS_ALIAS)
-        PersistentSelfSignedCertKey(signer, Configuration.KS_ALIAS, dataStoreService)
-    }.getOrElse { FallBackKeyMaterial(it) }
 
     open suspend fun testSigner(): Boolean = withContext(dispatcher) {
         catchingUnwrapped {
@@ -68,76 +41,4 @@ open class KeystoreService(
             }.getOrThrow()
         }.isSuccess
     }
-
-    companion object {
-        @Deprecated("Use HolderKeyManager.isValid()")
-        @Throws(AppResetRequiredException::class)
-        fun checkKeyMaterialValid() {
-            PlatformSigningProvider.let { provider ->
-                runBlocking {
-                    Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.forEach { alias ->
-                        provider.getSignerForKey(alias).onSuccess {
-                            throw AppResetRequiredException
-                        }
-                    }
-                }
-            }
-
-        }
-
-        /**
-         * Deletes the holder key, the keys of older versions, the self-signed certificate of the holder key, and the
-         * holder key registry.
-         */
-        @Deprecated("Use HolderKeyManager.deleteAll()")
-        fun clearKeyMaterial(dataStoreService: DataStoreService) {
-            PlatformSigningProvider.let { provider ->
-                runBlocking {
-                    (Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS + Configuration.KS_ALIAS).forEach { alias ->
-                        provider.getSignerForKey(alias).onSuccess {
-                            provider.deleteSigningKey(alias)
-                        }
-                    }
-                    dataStoreService.deletePreference(LEGACY_CERT_STORAGE_KEY)
-                    dataStoreService.deletePreference(certificateStorageKey(Configuration.KS_ALIAS))
-                    dataStoreService.deletePreference(Configuration.DATASTORE_KEY_HOLDER_KEYS)
-                }
-            }
-        }
-    }
-
-    //TMP for iOS
-    @Deprecated("Use HolderKeyManager.legacyKey()")
-    @Suppress("DEPRECATION")
-    @Throws(Throwable::class)
-    fun getSignerBlocking() = runBlocking { getSigner() }
-}
-
-/**
- * Fallback class if KeyMaterial initialization throws on startup.
- * Allows to handle errors with the default navigation procedure.
- */
-class FallBackKeyMaterial(
-    val reason: Throwable,
-    override val signatureAlgorithm: SignatureAlgorithm = SignatureAlgorithm.ECDSAwithSHA256,
-    override val publicKey: CryptoPublicKey = EphemeralKeyWithoutCert().publicKey,
-    override val identifier: String = ""
-) : KeyMaterial {
-    @SecretExposure
-    override fun exportPrivateKey(): KmmResult<CryptoPrivateKey.WithPublicKey<*>> {
-        throw NotImplementedError()
-    }
-
-    override suspend fun sign(data: SignatureInput): SignatureResult<*> {
-        throw NotImplementedError()
-    }
-
-    override fun getUnderLyingSigner(): Signer {
-        throw NotImplementedError()
-    }
-
-    override suspend fun getCertificate(): X509Certificate? {
-        throw NotImplementedError()
-    }
-
 }
