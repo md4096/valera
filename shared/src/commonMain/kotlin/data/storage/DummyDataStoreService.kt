@@ -3,6 +3,7 @@ package data.storage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 
 class DummyDataStoreService: DataStoreService {
     private var memory: MutableMap<String, MutableStateFlow<String?>> = mutableMapOf()
@@ -32,6 +33,9 @@ class DummyDataStoreService: DataStoreService {
             if (preference.compareAndSet(value, null)) return true
         }
     }
+
+    override suspend fun updatePreference(key: String, transform: (String?) -> String?): String? =
+        memory.getOrPut(key) { MutableStateFlow(null) }.updateAndGet(transform)
 
     override fun clearLog() {
     }

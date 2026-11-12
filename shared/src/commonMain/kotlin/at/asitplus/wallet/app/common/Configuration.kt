@@ -35,6 +35,7 @@ object Configuration {
     const val DATASTORE_KEY_ACTIVE_PROVISIONING_STATE = "active_provisioning_state"
     const val DATASTORE_KEY_PROVISIONING_STATE_TO_CODE_STORE = "provisioning_state_to_code_store"
     const val DATASTORE_KEY_COOKIES = "cookies"
+    const val DATASTORE_KEY_HOLDER_KEYS = "holder_keys"
     const val DATASTORE_SIGNING_CONFIG = "signingConfig"
     const val DATASTORE_CAPABILITIES_ATTESTATION = "capabilitiesAttestation"
     const val DEBUG_DATASTORE_KEY = "DBGKEY"

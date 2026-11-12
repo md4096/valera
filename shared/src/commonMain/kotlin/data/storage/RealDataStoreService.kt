@@ -17,6 +17,12 @@ interface DataStoreService {
     fun getPreference(key: String): Flow<String?>
     suspend fun deletePreference(key: String)
     suspend fun deletePreferenceIfPresent(key: String): Boolean
+
+    /**
+     * Replaces the value of [key] with [transform] of it in one atomic edit, also across the iOS processes; `null`
+     * deletes it. Returns the new value. [transform] may run more than once, so it must have no side effects.
+     */
+    suspend fun updatePreference(key: String, transform: (String?) -> String?): String?
     fun clearLog()
 }
 
@@ -63,6 +69,16 @@ class RealDataStoreService(private var dataStore: DataStore<Preferences>, privat
             removed = preferences.remove(dataStoreKey) != null
         }
         return removed
+    }
+
+    override suspend fun updatePreference(key: String, transform: (String?) -> String?): String? {
+        val dataStoreKey = stringPreferencesKey(key)
+        var updated: String? = null
+        dataStore.edit { preferences ->
+            updated = transform(preferences[dataStoreKey])
+            updated?.let { preferences[dataStoreKey] = it } ?: preferences.remove(dataStoreKey)
+        }
+        return updated
     }
 
     override fun clearLog() {
