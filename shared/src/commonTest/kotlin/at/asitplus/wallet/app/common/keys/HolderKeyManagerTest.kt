@@ -27,20 +27,6 @@ class HolderKeyManagerTest {
     }
 
     @Test
-    fun theLegacyKeyIsCreatedOnceAndRegistered() = runTest {
-        val fixture = Fixture()
-
-        val first = fixture.manager.legacyKey()
-        val second = fixture.manager.legacyKey()
-
-        assertTrue(first.publicKey.equalsCryptographically(second.publicKey))
-        assertEquals(setOf(Configuration.KS_ALIAS), fixture.factory.aliases)
-        val handle = assertIs<HolderKeyHandle.Platform>(fixture.registry.all().single())
-        assertEquals(Configuration.KS_ALIAS, handle.alias)
-        assertEquals(first.publicKey.holderKeyThumbprint, handle.thumbprint)
-    }
-
-    @Test
     fun resolveFindsARegisteredKey() = runTest {
         val fixture = Fixture()
         val signer = fixture.factory.create("holder-1")
@@ -54,12 +40,12 @@ class HolderKeyManagerTest {
     @Test
     fun resolvesAsTheHolderKeyResolverOfVcK() = runTest {
         val fixture = Fixture()
-        val legacy = fixture.manager.legacyKey()
+        val key = fixture.manager.newKey()
         val resolver: HolderKeyResolver = fixture.manager
 
-        val resolved = resolver.resolve(legacy.publicKey).getOrThrow()
+        val resolved = resolver.resolve(key.publicKey).getOrThrow()
 
-        assertTrue(resolved.publicKey.equalsCryptographically(legacy.publicKey))
+        assertTrue(resolved.publicKey.equalsCryptographically(key.publicKey))
         assertIs<HolderKeyNotFoundException>(resolver.resolve(otherKey()).exceptionOrNull())
     }
 
@@ -156,7 +142,8 @@ class HolderKeyManagerTest {
     @Test
     fun deleteAllDeletesRegisteredAndLegacyKeysWithTheirCertificates() = runTest {
         val fixture = Fixture()
-        fixture.manager.legacyKey()
+        fixture.factory.create(Configuration.KS_ALIAS)
+        fixture.manager.migrateLegacyKey()
         val signer = fixture.factory.create("holder-1")
         fixture.registry.put(HolderKeyHandle.Platform("holder-1", signer.publicKey.holderKeyThumbprint, now()))
         Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.forEach { fixture.factory.create(it) }
@@ -230,7 +217,7 @@ class HolderKeyManagerTest {
     @Test
     fun isValidUnlessKeysOfOlderVersionsArePresent() = runTest {
         val fixture = Fixture()
-        fixture.manager.legacyKey()
+        fixture.factory.create(Configuration.KS_ALIAS)
         assertTrue(fixture.manager.isValid())
 
         fixture.factory.create(Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.first())
@@ -239,28 +226,16 @@ class HolderKeyManagerTest {
     }
 
     @Test
-    fun withoutSecureHardwareAllocationFailsAndNothingIsRegistered() = runTest {
-        val dataStore = DummyDataStoreService()
-        val registry = PersistentHolderKeyRegistry(dataStore)
-        val failingFactory = object : HolderKeyFactory by InMemoryHolderKeyFactory() {
-            override suspend fun create(alias: String): Signer = throw IllegalStateException("No secure hardware")
-        }
-        val manager = HolderKeyManager(registry, failingFactory, SigningUiCallbacks(), dataStore)
-
-        assertFailsWith<IllegalStateException> { manager.allocateForIssuance() }
-
-        assertEquals(emptyList(), registry.all())
-    }
-
-    @Test
     fun theCertificateOfAKeyIsStoredUnderItsAlias() = runTest {
         val fixture = Fixture()
 
-        val certificate = assertNotNull(fixture.manager.legacyKey().getCertificate())
+        val key = fixture.manager.newKey()
+        val certificate = assertNotNull(key.getCertificate())
 
-        assertNotNull(fixture.dataStore.getPreference(certificateStorageKey(Configuration.KS_ALIAS)).first())
+        val alias = fixture.factory.aliases.single()
+        assertNotNull(fixture.dataStore.getPreference(certificateStorageKey(alias)).first())
         assertNull(fixture.dataStore.getPreference(LEGACY_CERT_STORAGE_KEY).first())
-        val reloaded = assertNotNull(fixture.manager.legacyKey().getCertificate())
+        val reloaded = assertNotNull(fixture.manager.resolve(key.publicKey).getOrThrow().getCertificate())
         assertTrue(certificate.encodeToDer().contentEquals(reloaded.encodeToDer()))
     }
 
@@ -272,11 +247,10 @@ class HolderKeyManagerTest {
             resolveOnly = true,
         )
 
-        assertFailsWith<HolderKeyNotFoundException> { readOnly.legacyKey() }
+        assertFailsWith<IllegalStateException> { readOnly.newKey() }
         assertEquals(emptySet(), fixture.factory.aliases)
 
         val legacy = fixture.factory.create(Configuration.KS_ALIAS)
-        assertTrue(readOnly.legacyKey().publicKey.equalsCryptographically(legacy.publicKey))
         assertTrue(readOnly.resolve(legacy.publicKey).getOrThrow().publicKey.equalsCryptographically(legacy.publicKey))
         assertEquals(emptyList(), fixture.registry.all())
 

@@ -110,15 +110,6 @@ class HolderKeyManager(
         return created
     }
 
-    /** The legacy holder key, created if there is none, and registered. Fails if it can't be created. */
-    suspend fun legacyKey(): WalletKeyMaterial {
-        val signer = factory.load(Configuration.KS_ALIAS)
-            ?: if (resolveOnly) throw HolderKeyNotFoundException("No legacy holder key, and keys are only resolved here")
-            else factory.create(Configuration.KS_ALIAS)
-        if (!resolveOnly) register(Configuration.KS_ALIAS, signer)
-        return keyMaterial(signer, Configuration.KS_ALIAS)
-    }
-
     /** Registers the legacy key, if any, and moves its certificate to its alias. Idempotent. */
     suspend fun migrateLegacyKey() {
         requireWritable()
