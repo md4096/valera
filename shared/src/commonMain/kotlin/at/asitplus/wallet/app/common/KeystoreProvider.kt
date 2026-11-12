@@ -44,18 +44,6 @@ open class KeystoreService(
         PersistentSelfSignedCertKey(signer, Configuration.KS_ALIAS, dataStoreService)
     }.getOrElse { FallBackKeyMaterial(it) }
 
-    /**
-     * Reads the public key currently held under [Configuration.KS_ALIAS] directly from the platform
-     * key store, bypassing any cached [KeyMaterial]/[Signer]. Returns null when no usable key exists.
-     *
-     * Used to detect when an in-memory key material has gone stale relative to the hardware key
-     * (e.g. after the key was invalidated and re-created): signing an OID4VCI credential-request proof
-     * with a stale key surfaces only as an opaque issuer-side rejection in
-     * [at.asitplus.wallet.lib.oidvci.ProofValidator.validateJwtProof].
-     */
-    open suspend fun liveSigningPublicKey(): CryptoPublicKey? =
-        holderKeyFactory.load(Configuration.KS_ALIAS)?.publicKey
-
     open suspend fun testSigner(): Boolean = withContext(dispatcher) {
         catchingUnwrapped {
             PlatformSigningProvider.let { provider ->

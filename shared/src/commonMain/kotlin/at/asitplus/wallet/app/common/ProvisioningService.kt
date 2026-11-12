@@ -12,13 +12,12 @@ import at.asitplus.openid.SupportedCredentialFormatSdJwt
 import at.asitplus.openid.SupportedCredentialFormatW3cVcJsonLd
 import at.asitplus.openid.SupportedCredentialFormatW3cVcJwt
 import at.asitplus.openid.SupportedCredentialFormatW3cVcJwtJsonLd
-import at.asitplus.signum.indispensable.equalsCryptographically
 import at.asitplus.signum.indispensable.josef.JsonWebToken
 import at.asitplus.signum.indispensable.josef.JwsCompactTyped
 import at.asitplus.signum.indispensable.josef.io.joseCompliantSerializer
-import at.asitplus.signum.indispensable.josef.toJsonWebKey
 import at.asitplus.wallet.app.common.attestation.AttestationService
 import at.asitplus.wallet.app.common.data.SettingsRepository
+import at.asitplus.wallet.app.common.keys.HolderKeyManager
 import at.asitplus.wallet.app.common.validation.IssuerValidationUi
 import at.asitplus.wallet.app.common.validation.PendingCredentialReview
 import at.asitplus.wallet.app.common.validation.ValidationPolicies
@@ -30,7 +29,6 @@ import at.asitplus.wallet.app.common.validation.toUi
 import at.asitplus.wallet.lib.agent.CredentialRenewalInfo
 import at.asitplus.wallet.lib.agent.EphemeralKeyWithoutCert
 import at.asitplus.wallet.lib.agent.HolderAgent
-import at.asitplus.wallet.lib.agent.KeyMaterial
 import at.asitplus.wallet.lib.agent.PreparedCredentialStorage
 import at.asitplus.wallet.lib.agent.SubjectCredentialStore
 import at.asitplus.wallet.lib.data.AttributeIndex
@@ -43,9 +41,12 @@ import at.asitplus.wallet.lib.ktor.openid.OpenId4VciKtorClient
 import at.asitplus.wallet.lib.ktor.openid.ProvisioningContext
 import at.asitplus.wallet.lib.oauth2.ClientAttestation
 import at.asitplus.wallet.lib.oauth2.OAuth2Client
+import at.asitplus.wallet.lib.oidvci.AttestationProofCreator
 import at.asitplus.wallet.lib.oidvci.CredentialIdentifierInfo
+import at.asitplus.wallet.lib.oidvci.JwtProofCreator
 import at.asitplus.wallet.lib.oidvci.LoadedIssuerMetadata
 import at.asitplus.wallet.lib.oidvci.OpenId4VciClient
+import at.asitplus.wallet.lib.oidvci.ProofKeySupplier
 import at.asitplus.wallet.lib.oidvci.ReceivedCredential
 import at.asitplus.wallet.lib.utils.MapStore
 import at.asitplus.wallet.lib.validation.IssuerMetadataValidator
@@ -75,8 +76,7 @@ import ui.navigation.IntentService
 class ProvisioningService(
     private val intentService: IntentService,
     private val dataStoreService: DataStoreService,
-    private val keyMaterial: KeyMaterial,
-    private val keystoreService: KeystoreService,
+    private val holderKeyManager: HolderKeyManager,
     private val holderAgent: HolderAgent,
     private val subjectCredentialStore: WalletSubjectCredentialStore,
     private val config: SettingsRepository,
@@ -167,42 +167,25 @@ class ProvisioningService(
         vciClientCached = null
     }
 
-    private suspend fun vciClient(): OpenId4VciClient = vciClientCached ?: OpenId4VciClient(
-        loadKeyAttestation = attestationService::loadKeyAttestation,
-        keyMaterial = keyMaterial,
-    ).also { vciClientCached = it }
-
-    private suspend fun openId4VciClient(): OpenId4VciKtorClient {
-        assertProofKeyConsistent()
-        return openId4VciClientCached ?: buildOpenId4VciClient()
-    }
-
     /**
-     * Verifies that the [keyMaterial] used to sign OID4VCI credential-request proofs still matches the
-     * key actually present in the platform key store. A mismatch means the in-memory key material has
-     * gone stale (e.g. the hardware key was invalidated and re-created); signing a proof with it would
-     * be rejected by the issuer at `ProofValidator.validateJwtProof`. We fail fast with a clear error
-     * and drop all cached clients/attestations, so a fresh key (and a matching key attestation) is used
-     * once the key material has been re-derived.
+     * Proves the key [holderKeyManager] allocates for every credential request, also a retry, as a `jwt` or an
+     * `attestation` proof, whichever the issuer accepts.
      */
-    private suspend fun assertProofKeyConsistent() {
-        val proofThumbprint = keyMaterial.jsonWebKey.jwkThumbprint
-        val liveKey = keystoreService.liveSigningPublicKey()
-        val liveThumbprint = liveKey?.toJsonWebKey()?.jwkThumbprint
-        Napier.d("Proof key consistency check: proofKey=$proofThumbprint, liveKeyStore=$liveThumbprint")
-        if (liveKey == null) {
-            Napier.w("Proof key consistency check: no live signing key under KS_ALIAS, skipping guard")
-            return
-        }
-        if (!liveKey.equalsCryptographically(keyMaterial.publicKey)) {
-            Napier.e(
-                "Proof signing key mismatch: proof would be signed with $proofThumbprint, " +
-                        "but key store holds $liveThumbprint. Invalidating caches."
-            )
-            clearCaches()
-            throw ProofKeyMismatchException(expected = liveThumbprint, actual = proofThumbprint)
-        }
-    }
+    private fun vciClient(): OpenId4VciClient = vciClientCached ?: run {
+        val keySupplier = ProofKeySupplier { catching { holderKeyManager.allocateForIssuance() } }
+        OpenId4VciClient(
+            proofCreators = listOf(
+                JwtProofCreator(keySupplier = keySupplier, loadKeyAttestation = attestationService::loadKeyAttestation),
+                AttestationProofCreator(
+                    loadKeyAttestation = attestationService::loadKeyAttestation,
+                    keySupplier = keySupplier,
+                ),
+            ),
+        )
+    }.also { vciClientCached = it }
+
+    private suspend fun openId4VciClient(): OpenId4VciKtorClient =
+        openId4VciClientCached ?: buildOpenId4VciClient()
 
     private suspend fun buildOpenId4VciClient(): OpenId4VciKtorClient = run {
         val clientId = currentClientId()
@@ -539,14 +522,14 @@ class ProvisioningService(
     fun discardCredentialsUnderReview() = pendingCredentialReview.clear()
 
     /**
-     * Validates [credential] as the type of [scheme] under [ValidationPolicies.issuance] with the key and validator of
-     * the [holderAgent], see [ReceivedCredential.prepareCredentialStorage], and stores it if it is accepted, returning
+     * Validates [credential] as the type of [scheme] under [ValidationPolicies.issuance] with the validator of the
+     * [holderAgent], see [ReceivedCredential.prepareCredentialStorage], and stores it if it is accepted, returning
      * its entry. A credential rejected only for problems the user may tolerate, e.g. an
      * untrusted issuer, an expired one, an unknown status, or claims its type requires that the issuer left out, waits
      * in [underReview] if it is set, so `null` is returned; otherwise, e.g. when refreshing a
      * credential in the background, it is stored nevertheless, as before. A credential failing a check of its
-     * integrity, e.g. its signature or its binding to the key of the wallet, or one that can not be decoded at all,
-     * fails with that check, see [integrityRejection]. Every problem of a rejected credential is logged.
+     * integrity, e.g. its signature or its binding to a proof key of its request, or one that can not be decoded at
+     * all, fails with that check, see [integrityRejection]. Every problem of a rejected credential is logged.
      */
     private suspend fun storeCredential(
         credential: ReceivedCredential,
@@ -639,11 +622,6 @@ internal suspend fun clearAbandonedProvisioningFlow(
 }
 
 internal const val ACTIVE_PROVISIONING_STATE_KEY = "active"
-class ProofKeyMismatchException(expected: String?, actual: String?) : IllegalStateException(
-    "The credential proof signing key no longer matches the device key store " +
-            "(key store holds $expected, key material advertises $actual). " +
-            "The key material must be re-derived before issuing credentials."
-)
 
 suspend fun SupportedCredentialFormat.resolveCredentialScheme(): CredentialScheme? = when (this) {
     is SupportedCredentialFormatIsoMdoc -> AttributeIndex.resolveIdentifier(docType, ISO_MDOC)

@@ -19,14 +19,13 @@ class KeystoreServiceTest {
     fun getSignerCreatesTheKeyOnceAndLoadsItAfterwards() = runTest {
         val factory = InMemoryHolderKeyFactory()
         val service = KeystoreService(DummyDataStoreService(), holderKeyFactory = factory)
-        assertNull(service.liveSigningPublicKey())
 
         val first = service.getSigner()
         val second = service.getSigner()
 
         assertEquals(setOf(Configuration.KS_ALIAS), factory.aliases)
         assertTrue(first.publicKey.equalsCryptographically(second.publicKey))
-        assertTrue(first.publicKey.equalsCryptographically(assertNotNull(service.liveSigningPublicKey())))
+        assertTrue(first.publicKey.equalsCryptographically(assertNotNull(factory.load(Configuration.KS_ALIAS)).publicKey))
     }
 
     @Test

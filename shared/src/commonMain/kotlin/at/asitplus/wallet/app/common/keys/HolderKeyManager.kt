@@ -70,6 +70,9 @@ class HolderKeyManager(
         WalletKeyMaterial(FallBackKeyMaterial(it), signingUi)
     }
 
+    /** The key for a new credential request: still the legacy key, which every credential is bound to. */
+    suspend fun allocateForIssuance(): KeyMaterial = legacyKey()
+
     /** Registers the legacy key, if any, and moves its certificate to its alias. Idempotent. */
     suspend fun migrateLegacyKey() {
         factory.load(Configuration.KS_ALIAS)?.let { register(Configuration.KS_ALIAS, it) }

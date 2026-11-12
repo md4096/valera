@@ -22,8 +22,7 @@ fun communicationsModule() = module {
             ProvisioningService(
                 intentService = get(),
                 dataStoreService = get(),
-                keyMaterial = get(),
-                keystoreService = get(),
+                holderKeyManager = get(),
                 holderAgent = get(ISSUANCE),
                 subjectCredentialStore = get(),
                 config = get(),
