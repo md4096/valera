@@ -52,10 +52,8 @@ class AttestationService(
 
     private val keyAttestationHelper = KeyAttestationHelper(config, httpClient, holderKey)
     val bufferedInstanceAttestation = MutableStateFlow<JwsCompactTyped<JsonWebToken>?>(null)
-    val bufferedKeyAttestation = MutableStateFlow<JwsCompactTyped<KeyAttestationJwt>?>(null)
 
     suspend fun reset() {
-        bufferedKeyAttestation.emit(null)
         bufferedInstanceAttestation.emit(null)
         instanceAttestationHelper.reset()
     }
@@ -112,31 +110,8 @@ class AttestationService(
         input: KeyAttestationInput,
     ): JwsCompactTyped<KeyAttestationJwt> {
         ensureWalletProviderAttestationEnabled()
-        if (input.allowBuffer()) {
-            bufferedKeyAttestation.firstOrNull()?.let { buffer ->
-                when {
-                    !buffer.hasMatchingAttestedKey() -> {
-                        Napier.w("Discarding buffered key attestation. ${buffer.attestedKeyMismatchMessage()}")
-                        bufferedKeyAttestation.emit(null)
-                    }
-
-                    buffer.hasRemainingKeyStorageStatusPeriod(
-                        input.preferredKeyStorageStatusPeriod ?: PREFERRED_DEFAULT_TTL
-                    ) -> {
-                        Napier.d("AttestationService: Use buffered key attestation")
-                        bufferedKeyAttestation.emit(null)
-                        return buffer
-                    }
-                }
-            }
-        }
-
         Napier.d("AttestationService: Request new key attestation")
-        return getVerifiedKeyAttestation(input).also {
-            if (input.allowBuffer()) {
-                bufferedKeyAttestation.emit(it)
-            }
-        }
+        return getVerifiedKeyAttestation(input)
     }
 
     /**
@@ -193,11 +168,6 @@ class AttestationService(
                 "Expected attested thumbprint: ${payload.attestedKeys.firstOrNull()?.jwkThumbprint}, " +
                 "got keyMaterial thumbprint: ${holderKey.jsonWebKey.jwkThumbprint}"
 
-    private fun JwsCompactTyped<KeyAttestationJwt>.hasRemainingKeyStorageStatusPeriod(ttl: Duration): Boolean {
-        val now = Clock.System.now()
-        return payload.expiration?.let { it > now + 10.seconds } == true && payload.keyStorageStatus?.expiration?.let { it > now + ttl } == true
-    }
-
     private fun JwsCompactTyped<JsonWebToken>.hasRemainingClientStatusPeriod(ttl: Duration): Boolean {
         val now = Clock.System.now()
         return payload.expiration?.let { it > now + 10.seconds } == true && payload.clientStatus?.expiration?.let { it > now + ttl } == true
@@ -223,6 +193,5 @@ class WalletProviderAttestationDisabledException : IllegalStateException(
 
 private const val MAX_KEY_ATTESTATION_ATTEMPTS = 2
 
-fun KeyAttestationInput.allowBuffer() = (this.credentialIssuer == null && this.clientNonce == null)
 fun allowBuffer() = false
 
