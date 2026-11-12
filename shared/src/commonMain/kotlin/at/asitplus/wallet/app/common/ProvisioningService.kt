@@ -46,7 +46,6 @@ import at.asitplus.wallet.lib.oidvci.CredentialIdentifierInfo
 import at.asitplus.wallet.lib.oidvci.JwtProofCreator
 import at.asitplus.wallet.lib.oidvci.LoadedIssuerMetadata
 import at.asitplus.wallet.lib.oidvci.OpenId4VciClient
-import at.asitplus.wallet.lib.oidvci.ProofKeySupplier
 import at.asitplus.wallet.lib.oidvci.ReceivedCredential
 import at.asitplus.wallet.lib.utils.MapStore
 import at.asitplus.wallet.lib.validation.IssuerMetadataValidator
@@ -168,21 +167,21 @@ class ProvisioningService(
     }
 
     /**
-     * Proves the key [holderKeyManager] allocates for every credential request, also a retry, as a `jwt` or an
+     * Proves a new key from [holderKeyManager] for every credential request, also a retry, as a `jwt` or an
      * `attestation` proof, whichever the issuer accepts.
      */
-    private fun vciClient(): OpenId4VciClient = vciClientCached ?: run {
-        val keySupplier = ProofKeySupplier { catching { holderKeyManager.allocateForIssuance() } }
-        OpenId4VciClient(
-            proofCreators = listOf(
-                JwtProofCreator(keySupplier = keySupplier, loadKeyAttestation = attestationService::loadKeyAttestation),
-                AttestationProofCreator(
-                    loadKeyAttestation = attestationService::loadKeyAttestation,
-                    keySupplier = keySupplier,
-                ),
+    private fun vciClient(): OpenId4VciClient = vciClientCached ?: OpenId4VciClient(
+        proofCreators = listOf(
+            JwtProofCreator(
+                keySupplier = holderKeyManager,
+                loadKeyAttestation = attestationService::loadKeyAttestation,
             ),
-        )
-    }.also { vciClientCached = it }
+            AttestationProofCreator(
+                loadKeyAttestation = attestationService::loadKeyAttestation,
+                keySupplier = holderKeyManager,
+            ),
+        ),
+    ).also { vciClientCached = it }
 
     private suspend fun openId4VciClient(): OpenId4VciKtorClient =
         openId4VciClientCached ?: buildOpenId4VciClient()

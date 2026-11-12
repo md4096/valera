@@ -8,6 +8,7 @@ import at.asitplus.signum.indispensable.josef.JwsCompactTyped
 import at.asitplus.signum.indispensable.josef.KeyAttestationJwt
 import at.asitplus.signum.indispensable.josef.toJsonWebKey
 import at.asitplus.wallet.app.common.data.SettingsRepository
+import at.asitplus.wallet.app.common.keys.HolderKeyStorage
 import io.github.aakira.napier.Napier
 import io.ktor.client.HttpClient
 import io.ktor.client.request.post
@@ -54,8 +55,8 @@ class KeyAttestationHelper(
                     keys = keys.map { it.toJsonWebKey() },
                     proof = pop.jws.toString(),
                     nonce = nonce,
-                    keyStorage = setOf("iso_18045_moderate"),
-                    userAuthentication = setOf("iso_18045_moderate"),
+                    keyStorage = setOf(HolderKeyStorage.KEY_STORAGE),
+                    userAuthentication = setOf(HolderKeyStorage.USER_AUTHENTICATION),
                     preferredKeyStorageStatusPeriod = preferredKeyStorageStatusPeriod,
                     supportedAlgorithms = supportedAlgorithms,
                 )

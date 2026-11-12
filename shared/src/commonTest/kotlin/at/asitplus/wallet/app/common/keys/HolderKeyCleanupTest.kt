@@ -222,6 +222,15 @@ class HolderKeyCleanupTest {
         assertEquals(setOf("unused"), fixture.factory.aliases)
     }
 
+    @Test
+    fun deletesANeverRegisteredKeyAlsoWithTheHotContainer() = runTest {
+        val fixture = Fixture(now)
+        fixture.factory.create("holder-unregistered")
+        PendingHolderKeys(fixture.dataStore).add(listOf("holder-unregistered"), now - 2.hours)
+
+        assertEquals(1, fixture.cleanup.collect(fixture.store.observeStoreContainer().first()))
+        assertEquals(emptySet(), fixture.factory.aliases)
+    }
 }
 
 private fun fixedClock(at: Instant) = object : Clock {

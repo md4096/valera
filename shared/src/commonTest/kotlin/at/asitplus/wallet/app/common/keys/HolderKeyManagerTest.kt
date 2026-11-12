@@ -13,6 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -60,6 +61,18 @@ class HolderKeyManagerTest {
 
         assertTrue(resolved.publicKey.equalsCryptographically(legacy.publicKey))
         assertIs<HolderKeyNotFoundException>(resolver.resolve(otherKey()).exceptionOrNull())
+    }
+
+    @Test
+    fun resolveKeepsTheKeyMaterialOfAKeyUntilItIsDeleted() = runTest {
+        val fixture = Fixture()
+        val key = fixture.manager.newKey()
+
+        assertSame(key, fixture.manager.resolve(key.publicKey).getOrThrow())
+        assertSame(key, fixture.manager.resolve(key.publicKey).getOrThrow())
+
+        fixture.factory.delete(fixture.factory.aliases.single())
+        assertIs<HolderKeyNotFoundException>(fixture.manager.resolve(key.publicKey).exceptionOrNull())
     }
 
     @Test
@@ -198,6 +211,20 @@ class HolderKeyManagerTest {
         assertEquals(emptySet(), fixture.factory.aliases)
         assertNull(fixture.dataStore.getPreference(Configuration.DATASTORE_KEY_HOLDER_KEYS).first())
         assertEquals(emptyList(), fixture.registry.all())
+    }
+
+    @Test
+    fun deleteAllDeletesKeysThatWereNeverRegistered() = runTest {
+        val fixture = Fixture()
+        val pending = PendingHolderKeys(fixture.dataStore)
+        fixture.factory.create("holder-1")
+        pending.add(listOf("holder-1", "holder-2"), now())
+        fixture.factory.undeletable = setOf("holder-2")
+
+        fixture.manager.deleteAll()
+
+        assertEquals(emptySet(), fixture.factory.aliases)
+        assertEquals(setOf("holder-2"), pending.all().keys)
     }
 
     @Test

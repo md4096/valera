@@ -1,7 +1,6 @@
 package at.asitplus.wallet.app.common
 
 import at.asitplus.signum.indispensable.CryptoSignature
-import at.asitplus.signum.indispensable.josef.io.joseCompliantSerializer
 import at.asitplus.signum.supreme.SignatureResult
 import at.asitplus.signum.supreme.os.PlatformSigningProviderSigner
 import at.asitplus.valera.resources.Res
@@ -14,11 +13,6 @@ open class WalletKeyMaterial(
     val keyMaterial: KeyMaterial,
     private val uiCallbacks: SigningUiCallbacks,
 ) : KeyMaterial by keyMaterial {
-
-    init {
-        // Napier.i won't print anything to logcat, because it's not initialized yet
-        println("Using this WalletKeyMaterial: ${joseCompliantSerializer.encodeToString(keyMaterial.jsonWebKey)}")
-    }
 
     override suspend fun sign(
         data: ByteArray
