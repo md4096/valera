@@ -420,8 +420,8 @@ internal fun NavGraphBuilder.sharedFlowDestinations(
             if (isBusy) return@onDiscard
             isBusy = true
             decidedEntries = entries
-            walletMain.provisioningService.discardCredentialsUnderReview()
             walletMain.scope.launch {
+                walletMain.provisioningService.discardCredentialsUnderReview()
                 flow.declinePendingDCAPIIssuingRequest(walletMain)
                 navigator.popToInvoker()
             }

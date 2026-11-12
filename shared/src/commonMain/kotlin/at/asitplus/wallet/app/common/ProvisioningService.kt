@@ -513,13 +513,13 @@ class ProvisioningService(
     @Throws(Throwable::class)
     suspend fun keepCredentialsUnderReview(): List<StoreEntryId> {
         val idsBefore = subjectCredentialStore.observeStoreContainer().first().credentials.map { it.first }.toSet()
-        val entries = pendingCredentialReview.take()
-        entries.forEach { storeAfterUserConsent(it.prepared) }
-        return resolveNewStoreEntryIds(idsBefore, entries.size)
+        // Each entry leaves the review only once stored, so its key stays held until then
+        val stored = pendingCredentialReview.keep { storeAfterUserConsent(it.prepared) }
+        return resolveNewStoreEntryIds(idsBefore, stored)
     }
 
     /** Drops every credential under review, as the user decided not to keep it. */
-    fun discardCredentialsUnderReview() = pendingCredentialReview.clear()
+    suspend fun discardCredentialsUnderReview() = pendingCredentialReview.discard()
 
     /**
      * Validates [credential] as the type of [scheme] under [ValidationPolicies.issuance] with the validator of the

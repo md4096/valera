@@ -10,7 +10,9 @@ import at.asitplus.wallet.app.common.WalletSessionBindings
 import at.asitplus.wallet.app.common.decodeImage
 import at.asitplus.wallet.app.common.domain.platform.ImageDecoder
 import at.asitplus.wallet.app.common.domain.platform.UrlOpener
+import at.asitplus.wallet.app.common.keys.HolderKeyCleanup
 import at.asitplus.wallet.app.common.keys.HolderKeyFactory
+import at.asitplus.wallet.app.common.keys.HolderKeyHolds
 import at.asitplus.wallet.app.common.keys.HolderKeyManager
 import at.asitplus.wallet.app.common.keys.HolderKeyRegistry
 import at.asitplus.wallet.app.common.keys.PersistentHolderKeyRegistry
@@ -56,6 +58,16 @@ fun platformModule() = module {
                 factory = get(),
                 signingUi = get(),
                 dataStoreService = get(),
+            )
+        }
+        scoped { HolderKeyHolds(get()) }
+        scoped {
+            HolderKeyCleanup(
+                holderKeyManager = get(),
+                subjectCredentialStore = get(),
+                persistentSubjectCredentialStore = get(),
+                pendingCredentialReview = get(),
+                holderKeyHolds = get(),
             )
         }
         scoped<WalletKeyMaterial> {

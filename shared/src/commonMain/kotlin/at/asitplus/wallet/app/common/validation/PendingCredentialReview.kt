@@ -1,6 +1,9 @@
 package at.asitplus.wallet.app.common.validation
 
+import at.asitplus.wallet.app.common.keys.HolderKeyHolds
+import at.asitplus.wallet.app.common.keys.holderKeyThumbprint
 import at.asitplus.wallet.lib.agent.PreparedCredentialStorage
+import at.asitplus.wallet.lib.agent.SubjectCredentialStore
 import at.asitplus.wallet.lib.data.CredentialScheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,8 +18,10 @@ import kotlinx.coroutines.flow.update
  * The credentials of an issuance are reviewed only once each of them has been validated, so that one failing its
  * integrity leaves none of the others in a later review, and replace those of an earlier review the user left
  * without deciding.
+ *
+ * Their keys are held in [holds] until they are stored or discarded, see [HolderKeyHolds].
  */
-class PendingCredentialReview {
+class PendingCredentialReview(private val holds: HolderKeyHolds) {
     /**
      * A [prepared] credential with its validation and renewal info, to store it after the user's consent, the [scheme]
      * the wallet requested it as, and the [outcome] of its validation to show.
@@ -30,13 +35,40 @@ class PendingCredentialReview {
     private val _entries = MutableStateFlow<List<Entry>>(emptyList())
     val entries: StateFlow<List<Entry>> = _entries.asStateFlow()
 
-    /** Replaces every entry with [entries], i.e. the credentials of the latest issuance to review. */
-    fun replace(entries: List<Entry>) {
-        _entries.value = entries.toList()
+    /**
+     * Replaces every entry with [entries], i.e. the credentials of the latest issuance to review, holding their keys
+     * before releasing those of the replaced ones.
+     */
+    suspend fun replace(entries: List<Entry>) {
+        holds.hold(entries.holderKeyThumbprints())
+        val replaced = _entries.getAndUpdate { entries.toList() }
+        holds.release(replaced.holderKeyThumbprints() - entries.holderKeyThumbprints())
     }
 
-    /** Removes and returns every entry, e.g. to store them once the user decided to. */
-    fun take(): List<Entry> = _entries.getAndUpdate { emptyList() }
+    /**
+     * Stores each entry with [store], then removes it and releases its key. If [store] fails, that entry and the
+     * following ones stay under review, so a retry doesn't store any twice. Returns how many were stored.
+     */
+    suspend fun keep(store: suspend (Entry) -> Unit): Int {
+        val entries = _entries.value
+        entries.forEach { entry ->
+            store(entry)
+            _entries.update { current -> current - entry }
+            holds.release(listOf(entry).holderKeyThumbprints())
+        }
+        return entries.size
+    }
 
+    /** Discards all entries and releases their keys. */
+    suspend fun discard() {
+        holds.release(_entries.getAndUpdate { emptyList() }.holderKeyThumbprints())
+    }
+
+    /** Drops all entries when the session closes; their holds expire on their own. */
     fun clear() = _entries.update { emptyList() }
+
+    private fun List<Entry>.holderKeyThumbprints(): Set<String> = mapNotNullTo(mutableSetOf()) {
+        SubjectCredentialStore.StoreEntry.fromPreparedCredential(it.prepared).getOrNull()?.holderKey()
+            ?.holderKeyThumbprint
+    }
 }

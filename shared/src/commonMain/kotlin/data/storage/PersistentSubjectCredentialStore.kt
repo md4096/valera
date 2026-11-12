@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlin.random.Random
 
 class PersistentSubjectCredentialStore(
@@ -181,7 +182,7 @@ class PersistentSubjectCredentialStore(
                     )
                 }.getOrElse {
                     Napier.w("dataStoreValueToContainer failed for old format", it)
-                    ExportableStoreContainer(listOf())
+                    return StoreContainer(credentials = listOf(), unreadable = true)
                 }
             }
             val credentials = export.credentials.map {
@@ -245,6 +246,12 @@ typealias StoreEntryId = Long
 @Serializable
 data class StoreContainer(
     val credentials: List<Pair<StoreEntryId, SubjectCredentialStore.StoreEntry>>,
+    /**
+     * Stored credentials exist but can't be decoded, so [credentials] is wrongly empty. Code that relies on the full
+     * list, like the holder key cleanup, must not run.
+     */
+    @Transient
+    val unreadable: Boolean = false,
 )
 
 @Serializable

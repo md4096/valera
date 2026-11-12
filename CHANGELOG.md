@@ -1,4 +1,5 @@
 # Release 5.10.0 (unreleased):
+ * Keys: Delete a holder key once no credential is bound to it
  * Issuing: Cancelling the biometric prompt for a credential's key ends the issuance, instead of continuing with a proof that needs no prompt
  * Presentation: A stored VC-JWT whose `sub` is not a `did:key` counts as not bound to a holder key, so it is only presented to requests that don't require holder binding
 

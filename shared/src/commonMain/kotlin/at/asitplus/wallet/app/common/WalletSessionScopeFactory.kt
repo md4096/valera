@@ -84,6 +84,7 @@ fun createMainWalletSessionScope(
     ).also { sessionHandle ->
         sessionHandle.scope.get<WalletMain>().apply {
             startBackgroundWork()
+            startHolderKeyMaintenance()
             startDcApiCredentialRegistration()
         }
     }

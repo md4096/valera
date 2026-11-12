@@ -13,6 +13,8 @@ import at.asitplus.wallet.app.common.dcapi.DCAPIExportService
 import at.asitplus.wallet.app.common.dcapi.DCAPIIssuingRequest
 import at.asitplus.wallet.app.common.dcapi.DCAPIVerificationRequest
 import at.asitplus.wallet.app.common.dcapi.data.export.CredentialRegistry
+import at.asitplus.wallet.app.common.keys.HolderKeyCleanup
+import at.asitplus.wallet.app.common.keys.HolderKeyHolds
 import at.asitplus.wallet.app.common.keys.HolderKeyManager
 import at.asitplus.wallet.app.common.presentation.LocalPresentmentSessionCoordinator
 import at.asitplus.wallet.app.common.presentation.LongfellowZkRegistration
@@ -51,6 +53,8 @@ class WalletMain(
     val keyMaterial: WalletKeyMaterial,
     val signingUiCallbacks: SigningUiCallbacks,
     val holderKeyManager: HolderKeyManager,
+    private val holderKeyCleanup: HolderKeyCleanup,
+    private val holderKeyHolds: HolderKeyHolds,
     val dataStoreService: DataStoreService,
     val platformAdapter: PlatformAdapter,
     val subjectCredentialStore: WalletSubjectCredentialStore,
@@ -90,19 +94,24 @@ class WalletMain(
     private var dcApiRegistrationJob: Job? = null
 
     /**
-     * Migrates the legacy holder key, starts the periodic checks of the stored credentials, of the Trust Lists and the
-     * WRPRC trust anchors, and loads the ZK circuits ahead of the first presentation, which waits for them. Not started
-     * in the iOS Identity Document Provider extension, see [createTransientFlowWalletSessionScope], which must not write
-     * the holder key registry.
+     * Starts the periodic checks of the stored credentials, of the Trust Lists and the WRPRC trust anchors, and loads
+     * the ZK circuits ahead of the first presentation, which waits for them. Not started in the iOS Identity Document
+     * Provider extension, see [createTransientFlowWalletSessionScope].
      */
     fun startBackgroundWork() {
-        scope.launch {
-            catchingUnwrapped { holderKeyManager.migrateLegacyKey() }
-                .onFailure { Napier.w("Migrating the legacy holder key failed", it) }
-        }
         credentialValidityService.startChecking()
         trustListService.startChecking()
         scope.launch { LongfellowZkRegistration.ensureRegistered() }
+    }
+
+    /** Migrates the legacy holder key, then starts the [HolderKeyCleanup]. Main wallet session only. */
+    fun startHolderKeyMaintenance() {
+        scope.launch {
+            catchingUnwrapped { holderKeyManager.migrateLegacyKey() }
+                .onFailure { Napier.w("Migrating the legacy holder key failed", it) }
+            // After the migration, so the cleanup sees the legacy key as registered
+            holderKeyCleanup.start(this)
+        }
     }
 
     suspend fun resetApp() {
@@ -119,6 +128,7 @@ class WalletMain(
         dataStoreService.deletePreference(Configuration.DATASTORE_KEY_ACTIVE_PROVISIONING_STATE)
         dataStoreService.deletePreference(Configuration.DATASTORE_KEY_PROVISIONING_STATE_TO_CODE_STORE)
         dataStoreService.deletePreference(Configuration.DATASTORE_KEY_COOKIES)
+        holderKeyHolds.clear()
         holderKeyManager.deleteAll()
 
         settingsRepository.reset()

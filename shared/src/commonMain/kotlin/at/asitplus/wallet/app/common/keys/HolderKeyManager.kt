@@ -16,6 +16,7 @@ import data.storage.DataStoreService
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.first
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * The holder keys of the wallet: allocates them for issuance and finds the key a credential is bound to. The rest of
@@ -84,6 +85,34 @@ class HolderKeyManager(
             Napier.i("HolderKeyManager: Moved the certificate of the legacy key to $target")
         }
     }
+
+    /**
+     * Deletes the keys, with their certificates, that aren't in [referenced] and were registered before [olderThan],
+     * including the legacy key. Returns how many aliases were cleaned up. See [HolderKeyCleanup].
+     */
+    suspend fun collectUnreferenced(referenced: Set<String>, olderThan: Instant): Int =
+        registry.all()
+            .filter { it.isCollectable(referenced, olderThan) }
+            .onEach { handle ->
+                when (handle) {
+                    is HolderKeyHandle.Platform -> {
+                        factory.delete(handle.alias)
+                        dataStoreService.deletePreference(certificateStorageKey(handle.alias))
+                    }
+                }
+                registry.remove(handle.thumbprint)
+                Napier.i("HolderKeyManager: Deleted unused holder key ${handle.thumbprint}")
+            }.size
+
+    /**
+     * Whether [collectUnreferenced] would delete a key with the same arguments, without deleting anything, so
+     * [HolderKeyCleanup] can skip reading the stored credentials again.
+     */
+    suspend fun hasCollectable(referenced: Set<String>, olderThan: Instant): Boolean =
+        registry.all().any { it.isCollectable(referenced, olderThan) }
+
+    private fun HolderKeyHandle.isCollectable(referenced: Set<String>, olderThan: Instant) =
+        thumbprint !in referenced && createdAt < olderThan
 
     /** Whether no keys of older app versions are present; otherwise the app has to be reset. */
     suspend fun isValid(): Boolean =
