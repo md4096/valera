@@ -125,17 +125,17 @@ class WalletMain(
         dataStoreService.deletePreference(Configuration.DATASTORE_KEY_ACTIVE_PROVISIONING_STATE)
         dataStoreService.deletePreference(Configuration.DATASTORE_KEY_PROVISIONING_STATE_TO_CODE_STORE)
         dataStoreService.deletePreference(Configuration.DATASTORE_KEY_COOKIES)
-        KeystoreService.clearKeyMaterial(dataStoreService)
+        holderKeyManager.deleteAll()
 
         settingsRepository.reset()
         appReady.value = false
         sessionService.newScope()
     }
 
-    fun softReset() {
+    suspend fun softReset() {
         Napier.d("Perform soft reset")
         appReady.value = false
-        KeystoreService.clearKeyMaterial(dataStoreService)
+        holderKeyManager.deleteAll()
         localPresentmentSessionCoordinator.resetAll("wallet-soft-reset")
         sessionService.newScope()
     }

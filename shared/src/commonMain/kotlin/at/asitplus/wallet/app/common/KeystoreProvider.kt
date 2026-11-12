@@ -82,6 +82,7 @@ open class KeystoreService(
     }
 
     companion object {
+        @Deprecated("Use HolderKeyManager.isValid()")
         @Throws(AppResetRequiredException::class)
         fun checkKeyMaterialValid() {
             PlatformSigningProvider.let { provider ->
@@ -100,6 +101,7 @@ open class KeystoreService(
          * Deletes the holder key, the keys of older versions, the self-signed certificate of the holder key, and the
          * holder key registry.
          */
+        @Deprecated("Use HolderKeyManager.deleteAll()")
         fun clearKeyMaterial(dataStoreService: DataStoreService) {
             PlatformSigningProvider.let { provider ->
                 runBlocking {

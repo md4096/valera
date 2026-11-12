@@ -17,7 +17,11 @@ class InMemoryHolderKeyFactory : HolderKeyFactory {
 
     override suspend fun load(alias: String): Signer? = keys[alias]
 
+    /** Aliases whose keys can't be deleted, e.g. for a keystore error. */
+    var undeletable: Set<String> = emptySet()
+
     override suspend fun delete(alias: String) {
+        check(alias !in undeletable) { "Key under $alias can't be deleted" }
         keys.remove(alias)
     }
 }

@@ -1,5 +1,6 @@
 package ui.navigation
 
+import AppResetRequiredException
 import AppTestTags
 import ErrorHandlingOverrideException
 import androidx.compose.animation.EnterTransition
@@ -44,7 +45,6 @@ import at.asitplus.valera.resources.snackbar_local_presentment_cancel_action
 import at.asitplus.valera.resources.snackbar_reset_app_successfully
 import at.asitplus.wallet.app.common.ErrorService
 import at.asitplus.wallet.app.common.IntentState
-import at.asitplus.wallet.app.common.KeystoreService
 import at.asitplus.wallet.app.common.LoadingMessageKey
 import at.asitplus.wallet.app.common.SnackbarService
 import at.asitplus.wallet.app.common.WalletMain
@@ -379,7 +379,6 @@ private fun WalletNavHost(
             })
         }
         composable<OnboardingStartRoute> {
-            catchingUnwrapped { KeystoreService.checkKeyMaterialValid() }.onFailure { Napier.d(it) { "Deleted old Key" } }
             OnboardingStartView(
                 onClickStart = { navigator.navigate(OnboardingInformationRoute) },
                 onClickLogo = onClickLogo,
@@ -421,9 +420,9 @@ private fun WalletNavHost(
                     walletMain.appReady.emit(true)
                 }
                 walletMain.scope.launch {
-                    catchingUnwrapped { KeystoreService.checkKeyMaterialValid() }.onFailure {
-                        walletMain.errorService.emit(it)
-                    }
+                    catchingUnwrapped { walletMain.holderKeyManager.isValid() }
+                        .onSuccess { if (!it) walletMain.errorService.emit(AppResetRequiredException) }
+                        .onFailure { walletMain.errorService.emit(it) }
                 }
             }
         }

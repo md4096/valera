@@ -2,6 +2,7 @@ package at.asitplus.wallet.app.common.keys
 
 import at.asitplus.KmmResult
 import at.asitplus.catching
+import at.asitplus.catchingUnwrapped
 import at.asitplus.signum.indispensable.CryptoPublicKey
 import at.asitplus.signum.indispensable.josef.toJsonWebKey
 import at.asitplus.signum.supreme.sign.Signer
@@ -67,6 +68,42 @@ class HolderKeyManager(
             dataStoreService.deletePreference(LEGACY_CERT_STORAGE_KEY)
             Napier.i("HolderKeyManager: Moved the certificate of the legacy key to $target")
         }
+    }
+
+    /** Whether no keys of older app versions are present; otherwise the app has to be reset. */
+    suspend fun isValid(): Boolean =
+        Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.none { factory.load(it) != null }
+
+    /**
+     * Deletes all keys and their certificates as far as it can, so that a reset always finishes. A key that can't be
+     * deleted stays registered, so a later reset deletes it. If the registry can't be read, deletes the keys under the
+     * fixed aliases and clears the registry.
+     */
+    suspend fun deleteAll() {
+        val registered = catchingUnwrapped { registry.all() }
+            .onFailure { Napier.w("HolderKeyManager: The registry can't be read, deleting the fixed aliases only", it) }
+            .getOrNull()
+        val registeredAliases = registered.orEmpty().associate {
+            when (it) {
+                is HolderKeyHandle.Platform -> it.thumbprint to it.alias
+            }
+        }
+        val aliases = registeredAliases.values + Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS + Configuration.KS_ALIAS
+        val failed = aliases.distinct().filterNot { alias ->
+            catchingUnwrapped {
+                factory.delete(alias)
+                dataStoreService.deletePreference(certificateStorageKey(alias))
+            }.onFailure { Napier.w("HolderKeyManager: Deleting the holder key under alias $alias failed", it) }
+                .isSuccess
+        }.toSet()
+        dataStoreService.deletePreference(LEGACY_CERT_STORAGE_KEY)
+        if (registered == null) {
+            registry.clear()
+        } else {
+            registeredAliases.filterValues { it !in failed }.keys.forEach { registry.remove(it) }
+        }
+        if (failed.isEmpty()) Napier.i("HolderKeyManager: Deleted all holder keys")
+        else Napier.w("HolderKeyManager: Deleted all holder keys but those under $failed")
     }
 
     private suspend fun register(alias: String, signer: Signer) {

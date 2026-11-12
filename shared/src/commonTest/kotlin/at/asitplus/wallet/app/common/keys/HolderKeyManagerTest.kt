@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -122,6 +123,77 @@ class HolderKeyManagerTest {
         fixture.manager.migrateLegacyKey()
 
         assertEquals(emptyList(), fixture.registry.all())
+    }
+
+    @Test
+    fun deleteAllDeletesRegisteredAndLegacyKeysWithTheirCertificates() = runTest {
+        val fixture = Fixture()
+        fixture.manager.legacyKey()
+        val signer = fixture.factory.create("holder-1")
+        fixture.registry.put(HolderKeyHandle.Platform("holder-1", signer.publicKey.holderKeyThumbprint, now()))
+        Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.forEach { fixture.factory.create(it) }
+        val aliases = listOf("holder-1", Configuration.KS_ALIAS)
+        aliases.forEach { fixture.dataStore.setPreference("certificate", certificateStorageKey(it)) }
+        fixture.dataStore.setPreference("legacy certificate", LEGACY_CERT_STORAGE_KEY)
+
+        fixture.manager.deleteAll()
+
+        assertEquals(emptySet(), fixture.factory.aliases)
+        assertEquals(emptyList(), fixture.registry.all())
+        aliases.forEach { assertNull(fixture.dataStore.getPreference(certificateStorageKey(it)).first()) }
+        assertNull(fixture.dataStore.getPreference(LEGACY_CERT_STORAGE_KEY).first())
+    }
+
+    @Test
+    fun deleteAllKeepsGoingAndKeepsRegisteredAKeyThatCantBeDeleted() = runTest {
+        val fixture = Fixture()
+        val stuck = fixture.factory.create("holder-1")
+        val other = fixture.factory.create("holder-2")
+        fixture.registry.put(HolderKeyHandle.Platform("holder-1", stuck.publicKey.holderKeyThumbprint, now()))
+        fixture.registry.put(HolderKeyHandle.Platform("holder-2", other.publicKey.holderKeyThumbprint, now()))
+        fixture.factory.create(Configuration.KS_ALIAS)
+        listOf("holder-1", "holder-2").forEach {
+            fixture.dataStore.setPreference("certificate", certificateStorageKey(it))
+        }
+        fixture.factory.undeletable = setOf("holder-1")
+
+        fixture.manager.deleteAll()
+
+        assertEquals(setOf("holder-1"), fixture.factory.aliases)
+        val kept = assertIs<HolderKeyHandle.Platform>(fixture.registry.all().single())
+        assertEquals("holder-1", kept.alias)
+        assertEquals("certificate", fixture.dataStore.getPreference(certificateStorageKey("holder-1")).first())
+        assertNull(fixture.dataStore.getPreference(certificateStorageKey("holder-2")).first())
+
+        fixture.factory.undeletable = emptySet()
+        fixture.manager.deleteAll()
+        assertEquals(emptySet(), fixture.factory.aliases)
+        assertEquals(emptyList(), fixture.registry.all())
+    }
+
+    @Test
+    fun deleteAllWithAnUnreadableRegistryDeletesTheFixedAliasesAndClearsIt() = runTest {
+        val fixture = Fixture()
+        fixture.factory.create(Configuration.KS_ALIAS)
+        Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.forEach { fixture.factory.create(it) }
+        fixture.dataStore.setPreference("not a registry", Configuration.DATASTORE_KEY_HOLDER_KEYS)
+
+        fixture.manager.deleteAll()
+
+        assertEquals(emptySet(), fixture.factory.aliases)
+        assertNull(fixture.dataStore.getPreference(Configuration.DATASTORE_KEY_HOLDER_KEYS).first())
+        assertEquals(emptyList(), fixture.registry.all())
+    }
+
+    @Test
+    fun isValidUnlessKeysOfOlderVersionsArePresent() = runTest {
+        val fixture = Fixture()
+        fixture.manager.legacyKey()
+        assertTrue(fixture.manager.isValid())
+
+        fixture.factory.create(Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.first())
+
+        assertFalse(fixture.manager.isValid())
     }
 
     private fun otherKey() = Signer.Ephemeral { ec {} }.getOrThrow().publicKey
