@@ -49,6 +49,7 @@ import at.asitplus.wallet.app.common.SESSION_NAME
 import at.asitplus.wallet.app.common.SessionHandle
 import at.asitplus.wallet.app.common.SessionService
 import at.asitplus.wallet.app.common.WalletDependencyProvider
+import at.asitplus.wallet.app.common.keys.InMemoryHolderKeyFactory
 import at.asitplus.wallet.app.common.WalletSessionBindings
 import at.asitplus.wallet.app.common.di.appModule
 import at.asitplus.wallet.app.common.validation.ValidationPolicies
@@ -58,7 +59,6 @@ import at.asitplus.wallet.eupidsdjwt.EuPidSdJwtDataElements
 import at.asitplus.wallet.lib.RequestOptionsCredential
 import at.asitplus.wallet.lib.agent.ClaimToBeIssued
 import at.asitplus.wallet.lib.agent.CredentialToBeIssued
-import at.asitplus.wallet.lib.agent.EphemeralKeyWithSelfSignedCert
 import at.asitplus.wallet.lib.agent.EphemeralKeyWithoutCert
 import at.asitplus.wallet.lib.agent.HolderAgent
 import at.asitplus.wallet.lib.agent.IssuerAgent
@@ -361,8 +361,7 @@ private const val TEST_PORTRAIT_PNG =
 
 private fun createWalletDependencyProvider(platformAdapter: PlatformAdapter): WalletDependencyProvider {
     val dummyDataStoreService = DummyDataStoreService()
-    val ks = object : KeystoreService(dummyDataStoreService) {
-        override suspend fun getSigner(): KeyMaterial = EphemeralKeyWithSelfSignedCert()
+    val ks = object : KeystoreService(dummyDataStoreService, holderKeyFactory = InMemoryHolderKeyFactory()) {
         override suspend fun testSigner() = catchingUnwrapped { getSigner() }.isSuccess
     }
     return WalletDependencyProvider(

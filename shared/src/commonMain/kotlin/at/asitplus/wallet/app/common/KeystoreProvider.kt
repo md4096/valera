@@ -8,21 +8,22 @@ import at.asitplus.io.multibaseDecode
 import at.asitplus.io.multibaseEncode
 import at.asitplus.signum.indispensable.CryptoPrivateKey
 import at.asitplus.signum.indispensable.CryptoPublicKey
-import at.asitplus.signum.indispensable.ECCurve
 import at.asitplus.signum.indispensable.SecretExposure
 import at.asitplus.signum.indispensable.SignatureAlgorithm
 import at.asitplus.signum.indispensable.equalsCryptographically
 import at.asitplus.signum.indispensable.pki.X509Certificate
 import at.asitplus.signum.supreme.SignatureResult
-import at.asitplus.signum.supreme.dsl.PREFERRED
 import at.asitplus.signum.supreme.os.PlatformSigningProvider
 import at.asitplus.signum.supreme.sign.SignatureInput
 import at.asitplus.signum.supreme.sign.Signer
 import at.asitplus.wallet.lib.agent.EphemeralKeyWithoutCert
 import at.asitplus.wallet.lib.agent.KeyMaterial
 import at.asitplus.wallet.lib.agent.KeyWithSelfSignedCert
+import at.asitplus.wallet.app.common.keys.HolderKeyFactory
+import at.asitplus.wallet.app.common.keys.PlatformHolderKeyFactory
 import data.storage.DataStoreService
 import io.github.aakira.napier.Napier
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.firstOrNull
@@ -35,40 +36,24 @@ import kotlinx.coroutines.withContext
 
 private const val CERT_STORAGE_KEY = "MB64_CERT_SELF_SIGNED"
 
+/** Preference key of the self-signed certificate of the holder key under [alias]. */
+internal fun certificateStorageKey(alias: String) = "$CERT_STORAGE_KEY:$alias"
+
 open class KeystoreService(
-    private val dataStoreService: DataStoreService
+    private val dataStoreService: DataStoreService,
+    /** Runs the keystore calls of the session one after the other, also those of [holderKeyFactory]. */
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+    private val holderKeyFactory: HolderKeyFactory = PlatformHolderKeyFactory(dispatcher),
 ) {
-    private val dispatcher = Dispatchers.IO.limitedParallelism(1)
 
     @Throws(Throwable::class)
     open suspend fun getSigner(): KeyMaterial = catchingUnwrapped { initSigner() }
         .getOrElse { FallBackKeyMaterial(it) }
 
     @Throws(Throwable::class)
-    private suspend fun initSigner(alias: String): KeyWithSelfSignedCert = withContext(dispatcher) {
-        PlatformSigningProvider.let { provider ->
-            val forKey = provider.getSignerForKey(alias).getOrElse {
-                provider.createSigningKey(alias = alias) {
-                    ec {
-                        curve = ECCurve.SECP_256_R_1
-                        purposes {
-                            keyAgreement = true
-                            signing = true
-                        }
-                    }
-                    hardware {
-                        backing = PREFERRED
-                        protection {
-                            factors {
-                                biometry = true
-                            }
-                            timeout = Configuration.BIOMETRIC_TIMEOUT
-                        }
-                    }
-                }.getOrThrow()
-            }
-            KeyWithPersistentSelfSignedCert(forKey, forKey.publicKey.didEncoded, 30)
-        }
+    private suspend fun initSigner(alias: String): KeyWithSelfSignedCert {
+        val signer = holderKeyFactory.load(alias) ?: holderKeyFactory.create(alias)
+        return KeyWithPersistentSelfSignedCert(signer, alias, signer.publicKey.didEncoded, 30)
     }
 
     @Throws(Throwable::class)
@@ -83,11 +68,8 @@ open class KeystoreService(
      * with a stale key surfaces only as an opaque issuer-side rejection in
      * [at.asitplus.wallet.lib.oidvci.ProofValidator.validateJwtProof].
      */
-    open suspend fun liveSigningPublicKey(): CryptoPublicKey? = withContext(dispatcher) {
-        PlatformSigningProvider.getSignerForKey(Configuration.KS_ALIAS)
-            .map { it.publicKey }
-            .getOrNull()
-    }
+    open suspend fun liveSigningPublicKey(): CryptoPublicKey? =
+        holderKeyFactory.load(Configuration.KS_ALIAS)?.publicKey
 
     open suspend fun testSigner(): Boolean = withContext(dispatcher) {
         catchingUnwrapped {
@@ -116,11 +98,13 @@ open class KeystoreService(
 
     inner class KeyWithPersistentSelfSignedCert(
         private val signer: Signer,
+        alias: String,
         customKeyId: String,
         lifetimeInSeconds: Long
     ) : KeyWithSelfSignedCert(listOf(), customKeyId, lifetimeInSeconds), Signer by signer {
         override fun getUnderLyingSigner() = signer
 
+        private val certificateKey = certificateStorageKey(alias)
         private val crtMut = Mutex()
         private var _certificate: X509Certificate? = null
         override suspend fun getCertificate(): X509Certificate? {
@@ -132,7 +116,7 @@ open class KeystoreService(
                             return it
                         else {
                             Napier.d { "Pre-stored Certificate mismatch. deleting!" }
-                            dataStoreService.deletePreference(CERT_STORAGE_KEY)
+                            dataStoreService.deletePreference(certificateKey)
                             null
                         }
                     }) ?: super.getCertificate()?.let { it.store(); _certificate = it; return it }
@@ -143,9 +127,7 @@ open class KeystoreService(
         }
 
         private suspend fun X509Certificate.Companion.load(): X509Certificate? =
-            dataStoreService.getPreference(
-                CERT_STORAGE_KEY
-            ).map { it?.multibaseDecode() }
+            dataStoreService.getPreference(certificateKey).map { it?.multibaseDecode() }
                 .map { it?.let { X509Certificate.decodeFromDer(it) } }
                 .firstOrNull()
                 .also { Napier.d { "Loaded certificate" + it?.encodeToTlv()?.prettyPrint() } }
@@ -155,7 +137,7 @@ open class KeystoreService(
             Napier.d { "Persistently storing certificate" }
             dataStoreService.setPreference(
                 encodeToDer().multibaseEncode(MultiBase.Base.BASE64),
-                CERT_STORAGE_KEY
+                certificateKey
             )
         }
 
@@ -189,6 +171,7 @@ open class KeystoreService(
                         }
                     }
                     dataStoreService.deletePreference(CERT_STORAGE_KEY)
+                    dataStoreService.deletePreference(certificateStorageKey(Configuration.KS_ALIAS))
                 }
             }
         }
