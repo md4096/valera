@@ -177,17 +177,18 @@ open class KeystoreService(
 
         }
 
-        fun clearKeyMaterial() {
+        /**
+         * Deletes the holder key, the keys of older versions, and the self-signed certificate of the holder key.
+         */
+        fun clearKeyMaterial(dataStoreService: DataStoreService) {
             PlatformSigningProvider.let { provider ->
                 runBlocking {
-                    Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS.forEach { alias ->
+                    (Configuration.KS_ALIASES_OLDER_THAN_THE_HILLS + Configuration.KS_ALIAS).forEach { alias ->
                         provider.getSignerForKey(alias).onSuccess {
                             provider.deleteSigningKey(alias)
                         }
-                        provider.getSignerForKey(Configuration.KS_ALIAS).onSuccess {
-                            provider.deleteSigningKey(Configuration.KS_ALIAS)
-                        }
                     }
+                    dataStoreService.deletePreference(CERT_STORAGE_KEY)
                 }
             }
         }
