@@ -5,9 +5,9 @@ import at.asitplus.wallet.app.common.TrustListService
 import at.asitplus.wallet.app.common.domain.vck.tokenStatusList.DeterministicCoseHeaderVerifySignature
 import at.asitplus.wallet.app.common.domain.vck.tokenStatusList.di.tokenStatusListModule
 import at.asitplus.wallet.app.common.iso.verifier.ProximityResponseValidator
+import at.asitplus.wallet.app.common.keys.HolderKeyManager
 import at.asitplus.wallet.app.common.validation.StoredCredentialValidator
 import at.asitplus.wallet.lib.agent.HolderAgent
-import at.asitplus.wallet.lib.agent.KeyMaterial
 import at.asitplus.wallet.lib.agent.SubjectCredentialStore
 import at.asitplus.wallet.lib.agent.validation.StatusListTokenResolver
 import at.asitplus.wallet.lib.etsi.LoteProfile
@@ -77,19 +77,19 @@ fun vckModule() = module {
         }
         scopedOf(::StoredCredentialValidator)
         scopedOf(::ProximityResponseValidator)
+        // Presents each credential with the key it is bound to, see HolderKeyManager
         scoped<HolderAgent> {
-            val keyMaterial: KeyMaterial by inject()
             val subjectCredentialStore: SubjectCredentialStore by inject()
             HolderAgent(
-                keyMaterial = keyMaterial,
+                holderKeyResolver = get<HolderKeyManager>(),
                 subjectCredentialStore = subjectCredentialStore,
                 credentialValidator = get(),
             )
         }
-        // Shares the key and the store of the default holder, and validates credentials as received, see ISSUANCE
+        // Shares the keys and the store of the default holder, and validates credentials as received, see ISSUANCE
         scoped<HolderAgent>(ISSUANCE) {
             HolderAgent(
-                keyMaterial = get(),
+                holderKeyResolver = get<HolderKeyManager>(),
                 subjectCredentialStore = get(),
                 credentialValidator = get(ISSUANCE),
             )

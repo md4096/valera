@@ -10,6 +10,7 @@ import at.asitplus.wallet.app.common.Configuration
 import at.asitplus.wallet.app.common.FallBackKeyMaterial
 import at.asitplus.wallet.app.common.SigningUiCallbacks
 import at.asitplus.wallet.app.common.WalletKeyMaterial
+import at.asitplus.wallet.lib.agent.HolderKeyResolver
 import at.asitplus.wallet.lib.agent.KeyMaterial
 import data.storage.DataStoreService
 import io.github.aakira.napier.Napier
@@ -28,13 +29,13 @@ class HolderKeyManager(
     private val signingUi: SigningUiCallbacks,
     private val dataStoreService: DataStoreService,
     private val clock: Clock = Clock.System,
-) {
+) : HolderKeyResolver {
 
     /**
      * The key material of [boundKey]. Fails if the key is gone or its alias now holds another key. Falls back to the
      * legacy key, for a process that hasn't migrated it yet.
      */
-    suspend fun resolve(boundKey: CryptoPublicKey): KmmResult<KeyMaterial> = catching {
+    override suspend fun resolve(boundKey: CryptoPublicKey): KmmResult<KeyMaterial> = catching {
         val thumbprint = boundKey.holderKeyThumbprint
         val handle = registry.get(thumbprint)
         val alias = when (handle) {

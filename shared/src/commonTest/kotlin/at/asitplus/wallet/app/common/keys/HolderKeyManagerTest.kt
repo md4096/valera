@@ -5,6 +5,7 @@ import at.asitplus.signum.supreme.sign.Signer
 import at.asitplus.wallet.app.common.Configuration
 import at.asitplus.wallet.app.common.FallBackKeyMaterial
 import at.asitplus.wallet.app.common.SigningUiCallbacks
+import at.asitplus.wallet.lib.agent.HolderKeyResolver
 import data.storage.DummyDataStoreService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -47,6 +48,18 @@ class HolderKeyManagerTest {
         val resolved = fixture.manager.resolve(signer.publicKey).getOrThrow()
 
         assertTrue(resolved.publicKey.equalsCryptographically(signer.publicKey))
+    }
+
+    @Test
+    fun resolvesAsTheHolderKeyResolverOfVcK() = runTest {
+        val fixture = Fixture()
+        val legacy = fixture.manager.legacyKey()
+        val resolver: HolderKeyResolver = fixture.manager
+
+        val resolved = resolver.resolve(legacy.publicKey).getOrThrow()
+
+        assertTrue(resolved.publicKey.equalsCryptographically(legacy.publicKey))
+        assertIs<HolderKeyNotFoundException>(resolver.resolve(otherKey()).exceptionOrNull())
     }
 
     @Test
