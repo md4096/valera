@@ -25,7 +25,6 @@ import kotlinx.serialization.encodeToByteArray
 
 class PresentationService(
     val platformAdapter: PlatformAdapter,
-    val keyMaterial: WalletKeyMaterial,
     val holderAgent: HolderAgent,
     httpService: HttpService,
     settingsRepository: SettingsRepository,
@@ -34,7 +33,6 @@ class PresentationService(
     private val client = httpService.buildHttpClient()
     private val presentationService = OpenId4VpKtorHolder(
         httpClient = client,
-        keyMaterial = keyMaterial,
         holder = holderAgent,
         allowedDcApiOriginSchemes = { settingsRepository.openId4VpAllowedOriginSchemes.first() },
         relyingPartyValidator = relyingPartyValidator,

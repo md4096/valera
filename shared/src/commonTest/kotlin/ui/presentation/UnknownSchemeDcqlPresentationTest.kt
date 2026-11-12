@@ -151,7 +151,6 @@ class UnknownSchemeDcqlPresentationTest {
         try {
             val wallet = OpenId4VpKtorHolder(
                 httpClient = httpClient,
-                keyMaterial = keyMaterial,
                 holder = holderAgent,
             )
 
